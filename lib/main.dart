@@ -1,10 +1,12 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
+
 import 'models/measurement.dart';
 import 'models/user_profile.dart';
+import 'services/bluetooth_permissions.dart';
 import 'services/measurement_store.dart';
 import 'services/scale_ble.dart';
-import 'services/bluetooth_permissions.dart';
 import 'ui/dashboard_view.dart';
 
 void main() => runApp(const BodyCompositionApp());
@@ -127,21 +129,30 @@ class _DashboardState extends State<Dashboard> {
       final permission = await bluetoothPermissions.request();
       if (permission != BluetoothPermissionResult.granted) {
         if (!mounted) return;
-        setState(() => error = permission == BluetoothPermissionResult.permanentlyDenied
-            ? 'Bluetooth access is disabled. Enable it in system settings.'
-            : 'Bluetooth permission is required to connect to your scale.');
-        if (permission == BluetoothPermissionResult.permanentlyDenied && mounted) {
-          await showDialog<void>(context: context, builder: (context) => AlertDialog(
-            title: const Text('Bluetooth permission needed'),
-            content: const Text('Enable Bluetooth access for this app in system settings, then try again.'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Not now')),
-              FilledButton(onPressed: () {
-                Navigator.pop(context);
-                bluetoothPermissions.openSettings();
-              }, child: const Text('Open settings')),
-            ],
-          ));
+        setState(() => error =
+            permission == BluetoothPermissionResult.permanentlyDenied
+                ? 'Bluetooth access is disabled. Enable it in system settings.'
+                : 'Bluetooth permission is required to connect to your scale.');
+        if (permission == BluetoothPermissionResult.permanentlyDenied &&
+            mounted) {
+          await showDialog<void>(
+              context: context,
+              builder: (context) => AlertDialog(
+                    title: const Text('Bluetooth permission needed'),
+                    content: const Text(
+                        'Enable Bluetooth access for this app in system settings, then try again.'),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Not now')),
+                      FilledButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            bluetoothPermissions.openSettings();
+                          },
+                          child: const Text('Open settings')),
+                    ],
+                  ));
         }
         return;
       }
@@ -150,11 +161,12 @@ class _DashboardState extends State<Dashboard> {
       await ble.scanAndConnect(profile: profile!);
       // Remain in measuring state until a stable measurement arrives or user cancels.
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           error = e.toString();
           scanning = false;
         });
+      }
       await ble.disconnect();
     }
   }
@@ -171,6 +183,7 @@ class _DashboardState extends State<Dashboard> {
     }
     final controller = TextEditingController();
     final result = await showDialog<double>(
+        // ignore: use_build_context_synchronously
         context: context,
         builder: (context) => AlertDialog(
               title: const Text('Add weight'),
@@ -208,12 +221,12 @@ class _DashboardState extends State<Dashboard> {
 
   @override
   Widget build(BuildContext context) => DashboardView(
-    history: history,
-    profile: profile,
-    scanning: scanning,
-    error: error,
-    onMeasure: scanning ? _cancel : _scan,
-    onManual: _manual,
-    onProfile: _editProfile,
-  );
+        history: history,
+        profile: profile,
+        scanning: scanning,
+        error: error,
+        onMeasure: scanning ? _cancel : _scan,
+        onManual: _manual,
+        onProfile: _editProfile,
+      );
 }

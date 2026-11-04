@@ -1,5 +1,7 @@
 import 'dart:async';
+
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+
 import '../models/measurement.dart';
 import '../models/user_profile.dart';
 import 'scale_decoder.dart';
@@ -16,8 +18,9 @@ class ScaleBle {
 
   Future<void> scanAndConnect({required UserProfile profile}) async {
     if (!profile.valid) throw ArgumentError('Complete your profile first');
-    if (!await FlutterBluePlus.isSupported)
+    if (!await FlutterBluePlus.isSupported) {
       throw StateError('Bluetooth LE unavailable');
+    }
     await FlutterBluePlus.adapterState
         .where((state) => state == BluetoothAdapterState.on)
         .first

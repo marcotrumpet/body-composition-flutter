@@ -6,8 +6,9 @@ import 'body_metrics.dart';
 /// Ignores unstable weight readings; impedance estimates only when valid.
 class ScaleDecoder {
   static Measurement? decode(List<int> bytes, {required UserProfile profile}) {
-    if (bytes.length < 13 || !profile.valid || (bytes[1] & 0x20) == 0)
+    if (bytes.length < 13 || !profile.valid || (bytes[1] & 0x20) == 0) {
       return null;
+    }
     final weight = ((bytes[12] << 8) | bytes[11]) / 200.0;
     if (weight <= 0 || weight > 350) return null;
     final impedance = (bytes[10] << 8) | bytes[9];
