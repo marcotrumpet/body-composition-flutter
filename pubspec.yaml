@@ -1,0 +1,18 @@
+name: body_composition_flutter
+description: Native Xiaomi body composition companion
+publish_to: none
+version: 0.1.0+1
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_blue_plus: ^1.35.5
+  shared_preferences: ^2.3.2
+  fl_chart: ^0.69.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+flutter:
+  uses-material-design: true
