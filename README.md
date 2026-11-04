@@ -41,7 +41,7 @@ For platform permissions and setup, see [platform setup](docs/platform-setup.md)
 
 ## App icon
 
-A custom branded launcher icon has **not yet been added**. The iOS and Android launcher icons currently come from the generated Flutter project.
+The launcher icon is a dark navy scale with a large weight readout (“72.4 kg”), a person and a three-colour body-composition ring, using the app’s blue/lavender/teal palette. The 1024×1024 master lives at [`design/app_icon.png`](design/app_icon.png); the iOS and Android launcher icons are generated from it at every required size.
 
 ## Credits
 
