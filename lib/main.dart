@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 
 import 'models/measurement.dart';
@@ -18,6 +20,7 @@ class BodyCompositionApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
         title: 'Body Composition',
         debugShowCheckedModeBanner: false,
+        themeMode: ThemeMode.light,
         theme: ThemeData(
             useMaterial3: true,
             colorScheme:
@@ -65,55 +68,111 @@ class _DashboardState extends State<Dashboard> {
     if (mounted) setState(() => history = items);
   }
 
+  bool get _isCupertino =>
+      defaultTargetPlatform == TargetPlatform.iOS;
+
   Future<void> _editProfile() async {
-    final height =
-        TextEditingController(text: profile?.heightCm.toStringAsFixed(0) ?? '');
+    final height = TextEditingController(text: profile?.heightCm.toStringAsFixed(0) ?? '');
     final age = TextEditingController(text: profile?.ageYears.toString() ?? '');
     var sex = profile?.sex ?? 'male';
-    final result = await showDialog<UserProfile>(
-        context: context,
-        builder: (context) => StatefulBuilder(
-              builder: (context, setDialogState) => AlertDialog(
-                title: const Text('Measurement profile'),
-                content: Column(mainAxisSize: MainAxisSize.min, children: [
-                  TextField(
-                      controller: height,
-                      keyboardType: TextInputType.number,
-                      decoration:
-                          const InputDecoration(labelText: 'Height (cm)')),
-                  TextField(
-                      controller: age,
-                      keyboardType: TextInputType.number,
-                      decoration:
-                          const InputDecoration(labelText: 'Age (years)')),
-                  DropdownButtonFormField<String>(
-                      initialValue: sex,
-                      decoration: const InputDecoration(
-                          labelText: 'Sex for estimation formulas'),
-                      items: const [
-                        DropdownMenuItem(value: 'male', child: Text('Male')),
-                        DropdownMenuItem(value: 'female', child: Text('Female'))
-                      ],
-                      onChanged: (value) {
-                        if (value != null) setDialogState(() => sex = value);
-                      }),
-                ]),
-                actions: [
-                  TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Cancel')),
-                  FilledButton(
-                      onPressed: () {
-                        final value = UserProfile(
-                            heightCm: double.tryParse(height.text) ?? 0,
-                            ageYears: int.tryParse(age.text) ?? 0,
-                            sex: sex);
-                        if (value.valid) Navigator.pop(context, value);
-                      },
-                      child: const Text('Save')),
-                ],
+
+    final result = await showAdaptiveDialog<UserProfile>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, updateDialog) {
+          void save() {
+            final value = UserProfile(
+              heightCm: double.tryParse(height.text.replaceAll(',', '.')) ?? 0,
+              ageYears: int.tryParse(age.text) ?? 0,
+              sex: sex,
+            );
+            if (value.valid) {
+              Navigator.of(dialogContext).pop(value);
+            }
+          }
+
+          if (_isCupertino) {
+            return CupertinoAlertDialog(
+              title: const Text('Measurement profile'),
+              content: Column(children: [
+                const SizedBox(height: 14),
+                CupertinoTextField(
+                  controller: height,
+                  placeholder: 'Height (cm)',
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  style: const TextStyle(color: CupertinoColors.label),
+                  padding: const EdgeInsets.all(12),
+                ),
+                const SizedBox(height: 10),
+                CupertinoTextField(
+                  controller: age,
+                  placeholder: 'Age (years)',
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(color: CupertinoColors.label),
+                  padding: const EdgeInsets.all(12),
+                ),
+                const SizedBox(height: 10),
+                CupertinoSlidingSegmentedControl<String>(
+                  groupValue: sex,
+                  children: const {
+                    'male': Padding(padding: EdgeInsets.symmetric(horizontal: 8), child: Text('Male')),
+                    'female': Padding(padding: EdgeInsets.symmetric(horizontal: 8), child: Text('Female')),
+                  },
+                  onValueChanged: (value) {
+                    if (value != null) updateDialog(() => sex = value);
+                  },
+                ),
+              ]),
+              actions: [
+                CupertinoDialogAction(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                CupertinoDialogAction(
+                  isDefaultAction: true,
+                  onPressed: save,
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          }
+
+          return AlertDialog(
+            backgroundColor: const Color(0xFFF9FAFF),
+            surfaceTintColor: Colors.transparent,
+            title: const Text('Measurement profile', style: TextStyle(color: Color(0xFF111B3A))),
+            content: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextField(
+                controller: height,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Height (cm)'),
               ),
-            ));
+              TextField(
+                controller: age,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Age (years)'),
+              ),
+              DropdownButtonFormField<String>(
+                value: sex,
+                decoration: const InputDecoration(labelText: 'Sex for estimation formulas'),
+                items: const [
+                  DropdownMenuItem(value: 'male', child: Text('Male')),
+                  DropdownMenuItem(value: 'female', child: Text('Female')),
+                ],
+                onChanged: (value) {
+                  if (value != null) updateDialog(() => sex = value);
+                },
+              ),
+            ]),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+              FilledButton(onPressed: save, child: const Text('Save')),
+            ],
+          );
+        },
+      ),
+    );
+
     height.dispose();
     age.dispose();
     if (result == null) return;
@@ -137,24 +196,47 @@ class _DashboardState extends State<Dashboard> {
                 : 'Bluetooth permission is required to connect to your scale.');
         if (permission == BluetoothPermissionResult.permanentlyDenied &&
             mounted) {
-          await showDialog<void>(
-              context: context,
-              builder: (context) => AlertDialog(
+          await showAdaptiveDialog<void>(
+            context: context,
+            builder: (dialogContext) => _isCupertino
+                ? CupertinoAlertDialog(
                     title: const Text('Bluetooth permission needed'),
-                    content: const Text(
-                        'Enable Bluetooth access for this app in system settings, then try again.'),
+                    content: const Text('Enable Bluetooth access for this app in Settings, then try again.'),
+                    actions: [
+                      CupertinoDialogAction(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        child: const Text('Not now'),
+                      ),
+                      CupertinoDialogAction(
+                        isDefaultAction: true,
+                        onPressed: () {
+                          Navigator.of(dialogContext).pop();
+                          bluetoothPermissions.openSettings();
+                        },
+                        child: const Text('Open settings'),
+                      ),
+                    ],
+                  )
+                : AlertDialog(
+                    backgroundColor: const Color(0xFFF9FAFF),
+                    surfaceTintColor: Colors.transparent,
+                    title: const Text('Bluetooth permission needed'),
+                    content: const Text('Enable Bluetooth access for this app in Settings, then try again.'),
                     actions: [
                       TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('Not now')),
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        child: const Text('Not now'),
+                      ),
                       FilledButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            bluetoothPermissions.openSettings();
-                          },
-                          child: const Text('Open settings')),
+                        onPressed: () {
+                          Navigator.of(dialogContext).pop();
+                          bluetoothPermissions.openSettings();
+                        },
+                        child: const Text('Open settings'),
+                      ),
                     ],
-                  ));
+                  ),
+          );
         }
         return;
       }
@@ -184,26 +266,56 @@ class _DashboardState extends State<Dashboard> {
       if (profile == null) return;
     }
     final controller = TextEditingController();
-    final result = await showDialog<double>(
-        // ignore: use_build_context_synchronously
-        context: context,
-        builder: (context) => AlertDialog(
-              title: const Text('Add weight'),
-              content: TextField(
+    final result = await showAdaptiveDialog<double>(
+      context: context,
+      builder: (dialogContext) {
+        void save() => Navigator.of(dialogContext).pop(
+          double.tryParse(controller.text.replaceAll(',', '.')),
+        );
+        return _isCupertino
+            ? CupertinoAlertDialog(
+                title: const Text('Add weight'),
+                content: Padding(
+                  padding: const EdgeInsets.only(top: 14),
+                  child: CupertinoTextField(
+                    controller: controller,
+                    placeholder: 'Weight (kg)',
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    style: const TextStyle(color: CupertinoColors.label),
+                    padding: const EdgeInsets.all(12),
+                  ),
+                ),
+                actions: [
+                  CupertinoDialogAction(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  CupertinoDialogAction(
+                    isDefaultAction: true,
+                    onPressed: save,
+                    child: const Text('Save'),
+                  ),
+                ],
+              )
+            : AlertDialog(
+                backgroundColor: const Color(0xFFF9FAFF),
+                surfaceTintColor: Colors.transparent,
+                title: const Text('Add weight'),
+                content: TextField(
                   controller: controller,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Weight (kg)')),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Cancel')),
-                FilledButton(
-                    onPressed: () => Navigator.pop(context,
-                        double.tryParse(controller.text.replaceAll(',', '.'))),
-                    child: const Text('Save')),
-              ],
-            ));
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Weight (kg)'),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(onPressed: save, child: const Text('Save')),
+                ],
+              );
+      },
+    );
     controller.dispose();
     if (result == null || result <= 0 || result > 350) return;
     final meters = profile!.heightCm / 100;
