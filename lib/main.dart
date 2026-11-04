@@ -21,7 +21,7 @@ class BodyCompositionApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
         title: 'Body Composition',
         debugShowCheckedModeBanner: false,
-        themeMode: ThemeMode.light,
+        themeMode: ThemeMode.system,
         theme: ThemeData(
             useMaterial3: true,
             colorScheme:
@@ -82,7 +82,7 @@ class _DashboardState extends State<Dashboard> {
     final age = TextEditingController(text: profile?.ageYears.toString() ?? '');
     var sex = profile?.sex ?? 'male';
 
-    final result = await showAdaptiveDialog<UserProfile>(
+    final result = await (_isCupertino ? showCupertinoSheet<UserProfile> : showDialog<UserProfile>)(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, updateDialog) {
@@ -98,9 +98,9 @@ class _DashboardState extends State<Dashboard> {
           }
 
           if (_isCupertino) {
-            return CupertinoAlertDialog(
-              title: const Text('Measurement profile'),
-              content: Column(children: [
+            return CupertinoPageScaffold(
+              navigationBar: const CupertinoNavigationBar(middle: Text('Measurement profile')),
+              child: SafeArea(child: ListView(padding: const EdgeInsets.all(20), children: [
                 const SizedBox(height: 14),
                 CupertinoTextField(
                   controller: height,
@@ -128,18 +128,12 @@ class _DashboardState extends State<Dashboard> {
                     if (value != null) updateDialog(() => sex = value);
                   },
                 ),
+              const SizedBox(height: 24),
+              Row(children: [
+                Expanded(child: CupertinoButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel'))),
+                Expanded(child: CupertinoButton.filled(onPressed: save, child: const Text('Save'))),
               ]),
-              actions: [
-                CupertinoDialogAction(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                CupertinoDialogAction(
-                  isDefaultAction: true,
-                  onPressed: save,
-                  child: const Text('Save'),
-                ),
-              ],
+              ])),
             );
           }
 
@@ -202,47 +196,37 @@ class _DashboardState extends State<Dashboard> {
                 : 'Bluetooth permission is required to connect to your scale.');
         if (permission == BluetoothPermissionResult.permanentlyDenied &&
             mounted) {
-          await showAdaptiveDialog<void>(
-            context: context,
-            builder: (dialogContext) => _isCupertino
-                ? CupertinoAlertDialog(
-                    title: const Text('Bluetooth permission needed'),
-                    content: const Text('Enable Bluetooth access for this app in Settings, then try again.'),
-                    actions: [
-                      CupertinoDialogAction(
-                        onPressed: () => Navigator.of(dialogContext).pop(),
-                        child: const Text('Not now'),
-                      ),
-                      CupertinoDialogAction(
-                        isDefaultAction: true,
-                        onPressed: () {
-                          Navigator.of(dialogContext).pop();
-                          bluetoothPermissions.openSettings();
-                        },
-                        child: const Text('Open settings'),
-                      ),
-                    ],
-                  )
-                : AlertDialog(
-                    backgroundColor: const Color(0xFFF9FAFF),
-                    surfaceTintColor: Colors.transparent,
-                    title: const Text('Bluetooth permission needed'),
-                    content: const Text('Enable Bluetooth access for this app in Settings, then try again.'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.of(dialogContext).pop(),
-                        child: const Text('Not now'),
-                      ),
-                      FilledButton(
-                        onPressed: () {
-                          Navigator.of(dialogContext).pop();
-                          bluetoothPermissions.openSettings();
-                        },
-                        child: const Text('Open settings'),
-                      ),
-                    ],
-                  ),
-          );
+          if (_isCupertino) {
+            final open = await showCupertinoModalPopup<bool>(
+              context: context,
+              builder: (popupContext) => CupertinoActionSheet(
+                title: const Text('Bluetooth permission needed'),
+                message: const Text('Enable Bluetooth access in Settings and try again.'),
+                actions: [CupertinoActionSheetAction(
+                  onPressed: () => Navigator.of(popupContext).pop(true),
+                  child: const Text('Open settings'),
+                )],
+                cancelButton: CupertinoActionSheetAction(
+                  onPressed: () => Navigator.of(popupContext).pop(false),
+                  child: const Text('Not now'),
+                ),
+              ),
+            );
+            if (open == true) await bluetoothPermissions.openSettings();
+          } else {
+            final open = await showDialog<bool>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: const Text('Bluetooth permission needed'),
+                content: const Text('Enable Bluetooth access in Settings and try again.'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Not now')),
+                  FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Open settings')),
+                ],
+              ),
+            );
+            if (open == true) await bluetoothPermissions.openSettings();
+          }
         }
         return;
       }
@@ -272,16 +256,16 @@ class _DashboardState extends State<Dashboard> {
       if (profile == null) return;
     }
     final controller = TextEditingController();
-    final result = await showAdaptiveDialog<double>(
+    final result = await (_isCupertino ? showCupertinoSheet<double> : showDialog<double>)(
       context: context,
       builder: (dialogContext) {
         void save() => Navigator.of(dialogContext).pop(
           double.tryParse(controller.text.replaceAll(',', '.')),
         );
         return _isCupertino
-            ? CupertinoAlertDialog(
-                title: const Text('Add weight'),
-                content: Padding(
+            ? CupertinoPageScaffold(
+                navigationBar: const CupertinoNavigationBar(middle: Text('Add weight')),
+                child: SafeArea(child: ListView(children: [Padding(
                   padding: const EdgeInsets.only(top: 14),
                   child: CupertinoTextField(
                     controller: controller,
@@ -291,17 +275,12 @@ class _DashboardState extends State<Dashboard> {
                     padding: const EdgeInsets.all(12),
                   ),
                 ),
-                actions: [
-                  CupertinoDialogAction(
-                    onPressed: () => Navigator.of(dialogContext).pop(),
-                    child: const Text('Cancel'),
-                  ),
-                  CupertinoDialogAction(
-                    isDefaultAction: true,
-                    onPressed: save,
-                    child: const Text('Save'),
-                  ),
-                ],
+                const SizedBox(height: 24),
+                Row(children: [
+                  Expanded(child: CupertinoButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel'))),
+                  Expanded(child: CupertinoButton.filled(onPressed: save, child: const Text('Save'))),
+                ]),
+                ])),
               )
             : AlertDialog(
                 backgroundColor: const Color(0xFFF9FAFF),
