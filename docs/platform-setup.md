@@ -1,27 +1,30 @@
 # Platform setup
 
-Run `flutter create --platforms=ios,android .` to generate the native Flutter runners.
+Generate native runners using `flutter create --platforms=ios,android .`.
 
 ## iOS
-In `ios/Runner/Info.plist` add:
+Add to `ios/Runner/Info.plist` inside the main dict:
 ```xml
 <key>NSBluetoothAlwaysUsageDescription</key>
-<string>Bluetooth is needed to read measurements from your scale.</string>
+<string>Bluetooth is used to read measurements from your body composition scale.</string>
 ```
-Enable Bluetooth on the iPhone. Test on a physical device; iOS Simulator does not provide the scale's BLE connection.
+Test with a physical iPhone. iOS Simulator cannot connect to the scale.
 
 ## Android
-In `android/app/src/main/AndroidManifest.xml`, above the application element, add:
+Add to `android/app/src/main/AndroidManifest.xml` outside the application element:
 ```xml
-<uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+<uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
 <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
 <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
 ```
-Request runtime Bluetooth permissions (Android 12+) and location permission where required before scanning. Permission-request UI is not yet implemented in this first milestone.
+The FlutterBluePlus plugin requires appropriate Android runtime permission requests. **This is not implemented yet**; Android BLE scanning may fail until added. Android's `neverForLocation` flag can filter some BLE advertisements; review if your scale is not discovered.
 
-## Limitations
-- Only the standard Body Composition Service (0x181B) and measurement characteristic (0x2A9C) are currently implemented.
-- Weight and impedance are decoded; estimated body fat and additional composition metrics are not yet implemented.
-- Height is selected from preset values and is not yet persisted.
-- BLE hardware testing, runtime permission handling and Garmin integration are pending.
-- The native runners must be generated locally; this repository has not yet been built or tested with Flutter SDK.
+## Status and safety
+- Native runners have not been committed; run Flutter create locally.
+- Weight, BMI and Xiaomi-impedance-based fat estimation implemented.
+- These estimates are not clinical measurements.
+- Profile is saved locally; historical measurements are stored unencrypted using shared_preferences.
+- Garmin synchronization is not implemented.
+- No physical-device testing or Flutter build has been performed.
