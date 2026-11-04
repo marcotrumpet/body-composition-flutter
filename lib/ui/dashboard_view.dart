@@ -1,6 +1,7 @@
-import 'dart:ui';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import '../models/measurement.dart';
 import '../models/user_profile.dart';
@@ -28,10 +29,11 @@ class DashboardView extends StatefulWidget {
 
 class _DashboardViewState extends State<DashboardView> {
   int tab = 0;
+  bool get _ios => defaultTargetPlatform == TargetPlatform.iOS;
   @override
   Widget build(BuildContext context) {
     return AdaptiveScaffold(
-      backgroundColor: const Color(0xFFF1F4FF),
+      backgroundColor: _ios ? CupertinoDynamicColor.resolve(CupertinoColors.systemGroupedBackground, context) : Theme.of(context).colorScheme.surface,
       appBar: AdaptiveAppBar(
         title: tab == 0 ? 'Body Composition' : tab == 1 ? 'Trends' : 'Profile',
         useNativeToolbar: true,
@@ -55,7 +57,7 @@ class _DashboardViewState extends State<DashboardView> {
         onTap: (index) => setState(() => tab = index),
       ),
       body: Stack(children: [
-        const Positioned.fill(child: _Atmosphere()),
+        if (!_ios) const Positioned.fill(child: _Atmosphere()),
         SafeArea(bottom: false, child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 250),
           child: KeyedSubtree(
@@ -69,27 +71,33 @@ class _DashboardViewState extends State<DashboardView> {
 
   Widget _home() {
     final latest = widget.history.isEmpty ? null : widget.history.first;
-    return ListView(padding: const EdgeInsets.fromLTRB(20, 10, 20, 120), children: [
-      _Glass(padding: const EdgeInsets.all(26), radius: 32, child: Column(children: [
-        const Text('LATEST WEIGHT', style: TextStyle(color: _blue, fontWeight: FontWeight.w800, letterSpacing: 2, fontSize: 11)),
-        const SizedBox(height: 14),
-        Container(width: 210, height: 210, alignment: Alignment.center,
-          decoration: BoxDecoration(shape: BoxShape.circle,
-            gradient: const RadialGradient(colors: [Color(0xFFFFFFFF), Color(0xFFDBE7FF), Color(0xFFACBDFD), Color(0xFF9A82E9)]),
-            boxShadow: [BoxShadow(color: _blue.withValues(alpha: .25), blurRadius: 48, spreadRadius: 3)],
-            border: Border.all(color: Colors.white.withValues(alpha: .85), width: 3)),
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Text(latest == null ? '—' : latest.weightKg.toStringAsFixed(1),
-              style: const TextStyle(fontSize: 55, fontWeight: FontWeight.w800, color: _ink, letterSpacing: -2)),
-            const Text('kg', style: TextStyle(color: _ink, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            Text(latest?.bmi == null ? 'Ready to measure' : 'BMI ${latest!.bmi!.toStringAsFixed(1)}',
-              style: TextStyle(color: _ink.withValues(alpha: .65), fontSize: 12)),
-          ])),
-        const SizedBox(height: 22),
-        Text(latest == null ? 'Connect your scale to get started' : 'Your latest measurement',
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: _ink)),
-      ])),
+    return ListView(padding: const EdgeInsets.fromLTRB(20, 16, 20, 120), children: [
+      _Glass(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32), radius: 28,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('LATEST MEASUREMENT', style: TextStyle(color: _ios ? CupertinoColors.secondaryLabel.resolveFrom(context) : _blue,
+            fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 1)),
+          const SizedBox(height: 20),
+          Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Expanded(child: TweenAnimationBuilder<double>(
+              key: ValueKey(latest?.timestamp),
+              tween: Tween(begin: 0, end: latest?.weightKg ?? 0),
+              duration: const Duration(milliseconds: 650),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, child) => Text(
+                latest == null ? '—' : value.toStringAsFixed(1),
+                style: TextStyle(fontSize: 58, fontWeight: FontWeight.w700,
+                  letterSpacing: -2, color: _ios ? CupertinoColors.label.resolveFrom(context) : _ink),
+              ),
+            )),
+            Padding(padding: const EdgeInsets.only(bottom: 12),
+              child: Text('kg', style: TextStyle(fontSize: 20,
+                color: _ios ? CupertinoColors.secondaryLabel.resolveFrom(context) : _ink))),
+          ]),
+          const SizedBox(height: 12),
+          Text(latest == null ? 'Connect your scale to record your first reading'
+            : 'BMI ${latest.bmi?.toStringAsFixed(1) ?? '—'}  ·  ${latest.timestamp.day}/${latest.timestamp.month}/${latest.timestamp.year}',
+            style: TextStyle(fontSize: 14, color: _ios ? CupertinoColors.secondaryLabel.resolveFrom(context) : _ink.withValues(alpha: .65))),
+        ])),
       const SizedBox(height: 22),
       const Text('BODY METRICS', style: TextStyle(color: _ink, fontWeight: FontWeight.w800, letterSpacing: 1.5)),
       const SizedBox(height: 12),
@@ -111,12 +119,7 @@ class _DashboardViewState extends State<DashboardView> {
         label: 'Add measurement manually',
         style: AdaptiveButtonStyle.tinted,
       )),
-      if (widget.scanning) _status(
-        Icons.bluetooth_searching_rounded,
-        'Connecting to your scale',
-        'Step onto the scale and wait for a stable reading. Tap Stop measuring to cancel.',
-        const Color(0xFF3659B9),
-      ),
+      if (widget.scanning) _measurementProgress(),
       if (widget.error != null) _status(
         Icons.info_outline_rounded,
         'Measurement unavailable',
@@ -132,6 +135,28 @@ class _DashboardViewState extends State<DashboardView> {
         ),
     ]);
   }
+
+  Widget _measurementProgress() => Padding(
+    padding: const EdgeInsets.only(top: 16),
+    child: _Glass(radius: 22, padding: const EdgeInsets.all(20),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const _BreathingIndicator(),
+          const SizedBox(width: 14),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Waiting for your scale', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600,
+              color: _ios ? CupertinoColors.label.resolveFrom(context) : _ink)),
+            const SizedBox(height: 4),
+            Text('Step on the scale and stand still.', style: TextStyle(fontSize: 13,
+              color: _ios ? CupertinoColors.secondaryLabel.resolveFrom(context) : _ink.withValues(alpha: .7))),
+          ])),
+        ]),
+        const SizedBox(height: 14),
+        if (_ios) const CupertinoActivityIndicator()
+        else const LinearProgressIndicator(),
+      ]),
+    ),
+  );
 
   Widget _status(IconData icon, String title, String description, Color accent) =>
     Padding(
@@ -244,17 +269,21 @@ class _Glass extends StatelessWidget {
   final EdgeInsets padding;
   final double radius;
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(radius),
-    child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-      child: Container(padding: padding,
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: .72),
-          borderRadius: BorderRadius.circular(radius),
-          border: Border.all(color: Colors.white.withValues(alpha: .9)),
-          boxShadow: [BoxShadow(color: _blue.withValues(alpha: .07), blurRadius: 24, offset: const Offset(0, 8))]),
-        child: child)),
-  );
+  Widget build(BuildContext context) {
+    final ios = defaultTargetPlatform == TargetPlatform.iOS;
+    final content = Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: ios
+          ? CupertinoDynamicColor.resolve(CupertinoColors.secondarySystemGroupedBackground, context)
+          : Colors.white.withValues(alpha: .94),
+        borderRadius: BorderRadius.circular(radius),
+        border: ios ? null : Border.all(color: const Color(0xFFE8EAF4)),
+      ),
+      child: child,
+    );
+    return ios ? content : content;
+  }
 }
 
 class _Atmosphere extends StatelessWidget {
@@ -272,4 +301,41 @@ class _Atmosphere extends StatelessWidget {
   Widget _orb(double size, Color color) => Container(width: size, height: size,
     decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: [
       BoxShadow(color: color.withValues(alpha: .5), blurRadius: 100, spreadRadius: 35)]));
+}
+
+class _BreathingIndicator extends StatefulWidget {
+  const _BreathingIndicator();
+  @override
+  State<_BreathingIndicator> createState() => _BreathingIndicatorState();
+}
+
+class _BreathingIndicatorState extends State<_BreathingIndicator>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this, duration: const Duration(milliseconds: 1600),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) => Container(
+        width: 42, height: 42,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: const Color(0xFF536DFF).withValues(alpha: reduceMotion ? .12 : .08 + .12 * _controller.value),
+        ),
+        child: Icon(defaultTargetPlatform == TargetPlatform.iOS
+          ? CupertinoIcons.bluetooth : Icons.bluetooth_searching,
+          color: const Color(0xFF536DFF), size: 22),
+      ),
+    );
+  }
 }
