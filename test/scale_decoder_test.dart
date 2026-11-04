@@ -31,8 +31,12 @@ void main() {
     expect(result?.impedance, isNull);
   });
   test('body metrics are bounded', () {
-    const metrics = BodyMetrics(weightKg: 90, impedanceOhms: 500,
-        heightCm: 180, ageYears: 35, sex: 'male');
+    const metrics = BodyMetrics(
+        weightKg: 90,
+        impedanceOhms: 500,
+        heightCm: 180,
+        ageYears: 35,
+        sex: 'male');
     expect(metrics.valid, isTrue);
     expect(metrics.fatPercent, inInclusiveRange(5, 75));
     expect(metrics.waterPercent, inInclusiveRange(35, 75));
