@@ -5,6 +5,7 @@ import 'models/user_profile.dart';
 import 'services/measurement_store.dart';
 import 'services/scale_ble.dart';
 import 'services/bluetooth_permissions.dart';
+import 'ui/dashboard_view.dart';
 
 void main() => runApp(const BodyCompositionApp());
 
@@ -206,93 +207,13 @@ class _DashboardState extends State<Dashboard> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final latest = history.isEmpty ? null : history.first;
-    return Scaffold(
-      appBar: AppBar(
-          title: const Text('Body Composition'),
-          backgroundColor: Colors.transparent,
-          actions: [
-            IconButton(
-                onPressed: _editProfile,
-                tooltip: 'Profile',
-                icon: const Icon(Icons.person_outline))
-          ]),
-      body: SafeArea(
-          child: ListView(padding: const EdgeInsets.all(20), children: [
-        const Text('Your health, at a glance',
-            style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 16),
-        Card(
-            child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('LATEST WEIGHT',
-                          style: TextStyle(letterSpacing: 1.2)),
-                      const SizedBox(height: 12),
-                      Text(
-                          latest == null
-                              ? '— kg'
-                              : '${latest.weightKg.toStringAsFixed(2)} kg',
-                          style: const TextStyle(
-                              fontSize: 42, fontWeight: FontWeight.bold)),
-                      if (latest?.bmi != null)
-                        Text('BMI ${latest!.bmi!.toStringAsFixed(1)}'),
-                      if (latest?.impedance != null)
-                        Text('Impedance ${latest!.impedance} Ω'),
-                      if (latest?.bodyFatPercent != null)
-                        Text(
-                            'Estimated body fat ${latest!.bodyFatPercent!.toStringAsFixed(1)}%'),
-                    ]))),
-        const SizedBox(height: 12),
-        Card(
-            child: ListTile(
-          leading: const Icon(Icons.person_outline),
-          title: Text(profile == null
-              ? 'Set up your profile'
-              : '${profile!.heightCm.toStringAsFixed(0)} cm · ${profile!.ageYears} years'),
-          subtitle: const Text('Used for BMI and body composition estimates'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: _editProfile,
-        )),
-        const SizedBox(height: 12),
-        FilledButton.icon(
-            onPressed: scanning ? _cancel : _scan,
-            icon: Icon(scanning
-                ? Icons.stop_circle_outlined
-                : Icons.bluetooth_searching),
-            label: Text(scanning ? 'Stop measuring' : 'Connect Xiaomi scale')),
-        OutlinedButton.icon(
-            onPressed: _manual,
-            icon: const Icon(Icons.add),
-            label: const Text('Add manually')),
-        if (error != null)
-          Padding(
-              padding: const EdgeInsets.all(8),
-              child: Text(error!,
-                  style:
-                      TextStyle(color: Theme.of(context).colorScheme.error))),
-        const SizedBox(height: 24),
-        Text('History', style: Theme.of(context).textTheme.titleLarge),
-        if (history.isEmpty)
-          const Padding(
-              padding: EdgeInsets.all(24),
-              child: Text(
-                  'No measurements yet. Connect your scale or add one manually.')),
-        ...history.map((m) => Card(
-                child: ListTile(
-              leading: const CircleAvatar(
-                  child: Icon(Icons.monitor_weight_outlined)),
-              title: Text('${m.weightKg.toStringAsFixed(2)} kg'),
-              subtitle: Text(
-                  '${m.timestamp.day}/${m.timestamp.month}/${m.timestamp.year} · ${m.timestamp.hour.toString().padLeft(2, '0')}:${m.timestamp.minute.toString().padLeft(2, '0')}'),
-              trailing: m.bmi == null
-                  ? null
-                  : Text('BMI ${m.bmi!.toStringAsFixed(1)}'),
-            ))),
-      ])),
-    );
-  }
+  Widget build(BuildContext context) => DashboardView(
+    history: history,
+    profile: profile,
+    scanning: scanning,
+    error: error,
+    onMeasure: scanning ? _cancel : _scan,
+    onManual: _manual,
+    onProfile: _editProfile,
+  );
 }
