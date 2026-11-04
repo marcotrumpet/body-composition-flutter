@@ -4,19 +4,21 @@ import 'package:flutter/material.dart';
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import '../models/measurement.dart';
 import '../models/user_profile.dart';
+import 'body_tokens.dart';
 
-const _ink = Color(0xFF111B3A);
-const _blue = Color(0xFF536DFF);
-const _purple = Color(0xFF9D67FA);
+const _ink = BodyTokens.ink;
+const _blue = BodyTokens.accent;
+const _purple = BodyTokens.secondaryAccent;
 
 class DashboardView extends StatefulWidget {
   const DashboardView({super.key, required this.history, required this.profile,
-    required this.scanning, required this.error, required this.onMeasure,
+    required this.scanning, required this.error, required this.success, required this.onMeasure,
     required this.onManual, required this.onProfile});
   final List<Measurement> history;
   final UserProfile? profile;
   final bool scanning;
   final String? error;
+  final String? success;
   final VoidCallback onMeasure;
   final VoidCallback onManual;
   final VoidCallback onProfile;
@@ -109,13 +111,53 @@ class _DashboardViewState extends State<DashboardView> {
         label: 'Add measurement manually',
         style: AdaptiveButtonStyle.tinted,
       )),
-      if (widget.scanning) const Padding(padding: EdgeInsets.all(12), child: Row(children: [
-        SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-        SizedBox(width: 12), Text('Waiting for a stable scale reading…')])),
-      if (widget.error != null) Padding(padding: const EdgeInsets.all(12),
-        child: Text(widget.error!, style: const TextStyle(color: Color(0xFFB62445)))),
+      if (widget.scanning) _status(
+        Icons.bluetooth_searching_rounded,
+        'Connecting to your scale',
+        'Step onto the scale and wait for a stable reading. Tap Stop measuring to cancel.',
+        const Color(0xFF3659B9),
+      ),
+      if (widget.error != null) _status(
+        Icons.info_outline_rounded,
+        'Measurement unavailable',
+        widget.error!,
+        const Color(0xFFAD3451),
+      ),
+      if (widget.success != null && !widget.scanning && widget.error == null)
+        _status(
+          Icons.check_circle_outline_rounded,
+          'Measurement saved',
+          widget.success!,
+          const Color(0xFF177B70),
+        ),
     ]);
   }
+
+  Widget _status(IconData icon, String title, String description, Color accent) =>
+    Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Semantics(
+        liveRegion: true,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: .94),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: accent.withValues(alpha: .24)),
+          ),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(icon, color: accent, size: 24),
+            const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: _ink)),
+              const SizedBox(height: 4),
+              Text(description, style: const TextStyle(fontSize: 13, color: _ink, height: 1.4)),
+            ])),
+          ]),
+        ),
+      ),
+    );
 
   Widget _metric(IconData icon, String title, double? value, String suffix, Color color) =>
     _Glass(radius: 24, padding: const EdgeInsets.all(18), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -155,7 +197,10 @@ class _DashboardViewState extends State<DashboardView> {
       const SizedBox(height: 24),
       const Text('RECENT READINGS', style: TextStyle(color: _ink, fontWeight: FontWeight.w800, letterSpacing: 1.5)),
       const SizedBox(height: 12),
-      if (widget.history.isEmpty) const Text('No measurements recorded yet.'),
+      if (widget.history.isEmpty)
+        _status(Icons.show_chart_rounded, 'No readings yet',
+          'Take a measurement or add your weight manually to start tracking your trend.',
+          const Color(0xFF3659B9)),
       ...widget.history.map((m) => Padding(padding: const EdgeInsets.only(bottom: 10),
         child: _Glass(radius: 20, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Row(children: [

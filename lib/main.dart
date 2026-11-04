@@ -11,6 +11,7 @@ import 'services/bluetooth_permissions.dart';
 import 'services/measurement_store.dart';
 import 'services/scale_ble.dart';
 import 'ui/dashboard_view.dart';
+import 'ui/body_tokens.dart';
 
 void main() => runApp(const BodyCompositionApp());
 
@@ -47,6 +48,7 @@ class _DashboardState extends State<Dashboard> {
   StreamSubscription<Measurement>? subscription;
   bool scanning = false;
   String? error;
+  String? success;
 
   @override
   void initState() {
@@ -59,7 +61,11 @@ class _DashboardState extends State<Dashboard> {
       await store.save(m);
       await ble.disconnect();
       await _reload();
-      if (mounted) setState(() => scanning = false);
+      if (mounted) setState(() {
+        scanning = false;
+        error = null;
+        success = '${m.weightKg.toStringAsFixed(1)} kg recorded successfully.';
+      });
     });
   }
 
@@ -138,7 +144,7 @@ class _DashboardState extends State<Dashboard> {
           }
 
           return AlertDialog(
-            backgroundColor: const Color(0xFFF9FAFF),
+            backgroundColor: BodyTokens.surface,
             surfaceTintColor: Colors.transparent,
             title: const Text('Measurement profile', style: TextStyle(color: Color(0xFF111B3A))),
             content: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -185,7 +191,7 @@ class _DashboardState extends State<Dashboard> {
       await _editProfile();
       if (profile == null) return;
     }
-    setState(() => error = null);
+    setState(() { error = null; success = null; });
     try {
       final permission = await bluetoothPermissions.request();
       if (permission != BluetoothPermissionResult.granted) {
@@ -324,6 +330,10 @@ class _DashboardState extends State<Dashboard> {
         weightKg: result,
         bmi: result / (meters * meters)));
     await _reload();
+    if (mounted) setState(() {
+      error = null;
+      success = '${result.toStringAsFixed(1)} kg added manually.';
+    });
   }
 
   @override
@@ -339,6 +349,7 @@ class _DashboardState extends State<Dashboard> {
         profile: profile,
         scanning: scanning,
         error: error,
+        success: success,
         onMeasure: scanning ? _cancel : _scan,
         onManual: _manual,
         onProfile: _editProfile,
