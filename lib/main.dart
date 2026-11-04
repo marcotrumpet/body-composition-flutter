@@ -4,6 +4,7 @@ import 'models/measurement.dart';
 import 'models/user_profile.dart';
 import 'services/measurement_store.dart';
 import 'services/scale_ble.dart';
+import 'services/bluetooth_permissions.dart';
 
 void main() => runApp(const BodyCompositionApp());
 
@@ -32,6 +33,7 @@ class _DashboardState extends State<Dashboard> {
   final store = MeasurementStore();
   final profileStore = UserProfileStore();
   final ble = ScaleBle();
+  final bluetoothPermissions = BluetoothPermissions();
   List<Measurement> history = [];
   UserProfile? profile;
   StreamSubscription<Measurement>? subscription;
@@ -119,11 +121,31 @@ class _DashboardState extends State<Dashboard> {
       await _editProfile();
       if (profile == null) return;
     }
-    setState(() {
-      scanning = true;
-      error = null;
-    });
+    setState(() => error = null);
     try {
+      final permission = await bluetoothPermissions.request();
+      if (permission != BluetoothPermissionResult.granted) {
+        if (!mounted) return;
+        setState(() => error = permission == BluetoothPermissionResult.permanentlyDenied
+            ? 'Bluetooth access is disabled. Enable it in system settings.'
+            : 'Bluetooth permission is required to connect to your scale.');
+        if (permission == BluetoothPermissionResult.permanentlyDenied && mounted) {
+          await showDialog<void>(context: context, builder: (context) => AlertDialog(
+            title: const Text('Bluetooth permission needed'),
+            content: const Text('Enable Bluetooth access for this app in system settings, then try again.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Not now')),
+              FilledButton(onPressed: () {
+                Navigator.pop(context);
+                bluetoothPermissions.openSettings();
+              }, child: const Text('Open settings')),
+            ],
+          ));
+        }
+        return;
+      }
+      if (!mounted) return;
+      setState(() => scanning = true);
       await ble.scanAndConnect(profile: profile!);
       // Remain in measuring state until a stable measurement arrives or user cancels.
     } catch (e) {
