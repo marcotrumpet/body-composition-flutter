@@ -30,6 +30,30 @@ void main() {
     expect(result?.bodyFatPercent, isNull);
     expect(result?.impedance, isNull);
   });
+  test('missing profile keeps weight and impedance but no estimates', () {
+    final bytes = List<int>.filled(13, 0);
+    bytes[1] = 0x20;
+    bytes[11] = 0x50;
+    bytes[12] = 0x46;
+    bytes[9] = 0xF4;
+    bytes[10] = 0x01;
+    final result = ScaleDecoder.decode(bytes);
+    expect(result?.weightKg, 90);
+    expect(result?.impedance, 500);
+    expect(result?.bmi, isNull);
+    expect(result?.bodyFatPercent, isNull);
+  });
+  test('invalid impedance keeps weight and BMI but no body fat', () {
+    final bytes = List<int>.filled(13, 0);
+    bytes[1] = 0x20;
+    bytes[11] = 0x50;
+    bytes[12] = 0x46;
+    final result = ScaleDecoder.decode(bytes, profile: profile);
+    expect(result?.weightKg, 90);
+    expect(result?.impedance, isNull);
+    expect(result?.bmi, closeTo(27.7778, 0.001));
+    expect(result?.bodyFatPercent, isNull);
+  });
   test('body metrics are bounded', () {
     const metrics = BodyMetrics(
         weightKg: 90,

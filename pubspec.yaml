@@ -3,10 +3,11 @@ description: Native Xiaomi body composition companion
 publish_to: none
 version: 0.1.0+1
 environment:
-  sdk: '>=3.4.0 <4.0.0'
+  sdk: '>=3.9.2 <4.0.0'
 dependencies:
   flutter:
     sdk: flutter
+  cupertino_icons: ^1.0.8
   flutter_blue_plus: ^1.35.5
   permission_handler: ^11.3.1
   device_info_plus: ^10.1.2

@@ -15,8 +15,9 @@ This project is not affiliated with or endorsed by Xiaomi or Garmin.
 - Xiaomi Bluetooth Low Energy scale discovery and measurement reading
 - Weight, BMI, impedance and estimated body composition
 - Local measurement history and weight trends
-- User profile for measurement estimates
+- Optional user profile for measurement estimates; weight-only readings work without one
 - Adaptive iOS and Android interface using `adaptive_platform_ui`
+- Light and dark palettes with contrast-checked semantic tokens
 - Native iOS Liquid Glass navigation where supported, with platform fallbacks
 
 ## Status

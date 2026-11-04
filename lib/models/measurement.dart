@@ -1,3 +1,6 @@
+import '../services/body_metrics.dart';
+import 'user_profile.dart';
+
 class Measurement {
   const Measurement(
       {required this.timestamp,
@@ -24,4 +27,33 @@ class Measurement {
         bmi: (json['bmi'] as num?)?.toDouble(),
         bodyFatPercent: (json['bodyFatPercent'] as num?)?.toDouble(),
       );
+
+  /// Recomputes derived values for the current profile. Used after a profile
+  /// edit so historical estimates do not silently reflect an old height/age.
+  Measurement recomputedWith(UserProfile? profile) {
+    double? nextBmi;
+    double? nextBodyFat;
+    if (profile != null && profile.valid) {
+      final meters = profile.heightCm / 100;
+      nextBmi = weightKg / (meters * meters);
+      final ohms = impedance;
+      if (ohms != null) {
+        final metrics = BodyMetrics(
+          weightKg: weightKg,
+          impedanceOhms: ohms,
+          heightCm: profile.heightCm,
+          ageYears: profile.ageYears,
+          sex: profile.sex,
+        );
+        if (metrics.valid) nextBodyFat = metrics.fatPercent;
+      }
+    }
+    return Measurement(
+      timestamp: timestamp,
+      weightKg: weightKg,
+      impedance: impedance,
+      bmi: nextBmi,
+      bodyFatPercent: nextBodyFat,
+    );
+  }
 }
