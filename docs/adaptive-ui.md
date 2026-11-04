@@ -8,6 +8,8 @@ controls and older iOS versions use Cupertino fallbacks.
   Do **not** wrap the navigator in `AdaptiveToolbarHost` while using
   `AdaptiveScaffold`: the hosted fixed toolbar is drawn above the Navigator on
   iOS 26 and stays visible over Cupertino sheets.
+- `AdaptiveScaffold(minimizeBehavior: TabBarMinimizeBehavior.never)` keeps the
+  iOS 26 tab bar at full size while the user scrolls.
 - `AdaptiveBottomNavigationBar(useNativeBottomBar: true)` supplies three tabs.
   - iOS 26 receives SF Symbol strings for the native tab bar.
   - iOS 18 and below receive a custom `CupertinoTabBar` because the package

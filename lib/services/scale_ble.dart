@@ -44,6 +44,11 @@ class ScaleBle {
   static const _connectTimeout = Duration(seconds: 15);
   static const _readingTimeout = Duration(seconds: 45);
 
+  // Xiaomi scales report a stable weight first and the impedance packet a
+  // moment later. Keep listening briefly so body composition is not discarded
+  // in favour of the first weight-only notification.
+  static const _impedanceGrace = Duration(seconds: 15);
+
   BluetoothDevice? _device;
   StreamSubscription<List<int>>? _notificationSub;
   StreamSubscription<BluetoothConnectionState>? _connectionSub;
@@ -52,6 +57,8 @@ class ScaleBle {
   int _session = 0;
   bool _expectDisconnect = false;
   bool _readingReceived = false;
+  Measurement? _pendingWeightOnly;
+  Timer? _graceTimer;
 
   final _measurements = StreamController<Measurement>.broadcast();
   final _phases = StreamController<ScalePhase>.broadcast();
@@ -83,6 +90,18 @@ class ScaleBle {
     await _stopSession();
   }
 
+  /// Emits the final reading once, cancelling the grace and overall timers.
+  void _finalize(int session, Measurement value) {
+    if (_stale(session) || _readingReceived) return;
+    _readingReceived = true;
+    _graceTimer?.cancel();
+    _graceTimer = null;
+    _readingTimer?.cancel();
+    _readingTimer = null;
+    _pendingWeightOnly = null;
+    if (!_measurements.isClosed) _measurements.add(value);
+  }
+
   Future<void> _stopSession() async {
     final session = ++_session;
     await _cleanup(session);
@@ -97,6 +116,9 @@ class ScaleBle {
     if (_stale(session)) return;
     _readingTimer?.cancel();
     _readingTimer = null;
+    _graceTimer?.cancel();
+    _graceTimer = null;
+    _pendingWeightOnly = null;
     _readingReceived = false;
 
     await _connectionSub?.cancel();
@@ -140,6 +162,7 @@ class ScaleBle {
     if (_stale(session)) return;
     _phase = ScalePhase.idle;
     _readingReceived = false;
+    _pendingWeightOnly = null;
 
     try {
       if (!await FlutterBluePlus.isSupported) {
@@ -230,10 +253,18 @@ class ScaleBle {
 
         _device = device;
         _connectionSub = device.connectionState.listen((state) {
-          if (state == BluetoothConnectionState.disconnected &&
-              !_expectDisconnect &&
-              !_readingReceived &&
-              !_stale(session)) {
+          if (state != BluetoothConnectionState.disconnected ||
+              _expectDisconnect ||
+              _readingReceived ||
+              _stale(session)) {
+            return;
+          }
+          // Some scales disconnect immediately after their final packet. If
+          // that packet was weight-only, save it instead of losing the reading.
+          final pending = _pendingWeightOnly;
+          if (pending != null) {
+            _finalize(session, pending);
+          } else {
             unawaited(_fail(ScaleFailureKind.connectionLost));
           }
         });
@@ -267,10 +298,17 @@ class ScaleBle {
           if (_stale(session) || _readingReceived) return;
           final value = ScaleDecoder.decode(data, profile: profile);
           if (value == null) return;
-          _readingReceived = true;
-          _readingTimer?.cancel();
-          _readingTimer = null;
-          if (!_measurements.isClosed) _measurements.add(value);
+          if (value.impedance != null) {
+            _finalize(session, value);
+            return;
+          }
+          // Hold the weight-only reading while the scale completes the
+          // impedance measurement. A later packet replaces it.
+          _pendingWeightOnly = value;
+          _graceTimer ??= Timer(_impedanceGrace, () {
+            final pending = _pendingWeightOnly;
+            if (pending != null) _finalize(session, pending);
+          });
         });
 
         try {
@@ -285,7 +323,11 @@ class ScaleBle {
 
         _emitPhase(ScalePhase.waitingForReading);
         _readingTimer = Timer(_readingTimeout, () {
-          if (!_stale(session) && !_readingReceived) {
+          if (_stale(session) || _readingReceived) return;
+          final pending = _pendingWeightOnly;
+          if (pending != null) {
+            _finalize(session, pending);
+          } else {
             unawaited(_fail(ScaleFailureKind.readingTimeout));
           }
         });

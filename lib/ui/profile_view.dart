@@ -1,9 +1,11 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 
+import '../models/garmin_account.dart';
 import '../models/user_profile.dart';
 import 'body_format.dart';
 import 'body_tokens.dart';
+import 'garmin_card.dart';
 import 'widgets/body_surface.dart';
 
 class ProfileView extends StatelessWidget {
@@ -14,6 +16,15 @@ class ProfileView extends StatelessWidget {
     required this.notice,
     required this.onProfile,
     required this.bottomClearance,
+    this.garminAccount,
+    this.garminLoading = false,
+    this.garminBusy = false,
+    this.garminPendingReadings = 0,
+    this.garminSyncCompleted,
+    this.garminSyncTotal,
+    this.onGarminConnect,
+    this.onGarminSync,
+    this.onGarminDisconnect,
   });
 
   final UserProfile? profile;
@@ -21,6 +32,15 @@ class ProfileView extends StatelessWidget {
   final DashboardNotice? notice;
   final VoidCallback onProfile;
   final double bottomClearance;
+  final GarminAccount? garminAccount;
+  final bool garminLoading;
+  final bool garminBusy;
+  final int garminPendingReadings;
+  final int? garminSyncCompleted;
+  final int? garminSyncTotal;
+  final VoidCallback? onGarminConnect;
+  final VoidCallback? onGarminSync;
+  final VoidCallback? onGarminDisconnect;
 
   @override
   Widget build(BuildContext context) {
@@ -69,9 +89,7 @@ class ProfileView extends StatelessWidget {
                 Text(
                   'Used to estimate body composition from your scale readings.',
                   textAlign: TextAlign.center,
-                  style: BodyType.caption.copyWith(
-                    color: colors.secondaryInk,
-                  ),
+                  style: BodyType.caption.copyWith(color: colors.secondaryInk),
                 ),
                 const SizedBox(height: BodySpace.lg),
                 Divider(height: 1, color: colors.border),
@@ -107,6 +125,18 @@ class ProfileView extends StatelessWidget {
               ],
             ),
           ),
+        const SizedBox(height: BodySpace.lg),
+        GarminCard(
+          account: garminAccount,
+          loading: garminLoading,
+          busy: garminBusy,
+          pendingReadings: garminPendingReadings,
+          syncCompleted: garminSyncCompleted,
+          syncTotal: garminSyncTotal,
+          onConnect: onGarminConnect,
+          onSync: onGarminSync,
+          onDisconnect: onGarminDisconnect,
+        ),
         const SizedBox(height: BodySpace.lg),
         SurfaceCard(
           child: Column(

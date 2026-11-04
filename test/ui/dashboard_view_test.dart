@@ -1,3 +1,5 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:body_composition_flutter/models/garmin_account.dart';
 import 'package:body_composition_flutter/models/measurement.dart';
 import 'package:body_composition_flutter/models/user_profile.dart';
 import 'package:body_composition_flutter/services/scale_ble.dart';
@@ -38,6 +40,16 @@ Future<void> _pumpDashboard(
   ThemeData? theme,
   double textScale = 1,
   Size surfaceSize = const Size(800, 1200),
+  GarminAccount? garminAccount,
+  bool garminLoading = false,
+  bool garminBusy = false,
+  int garminPendingReadings = 0,
+  int? garminSyncCompleted,
+  int? garminSyncTotal,
+  VoidCallback? onGarminConnect,
+  VoidCallback? onGarminSync,
+  VoidCallback? onGarminDisconnect,
+  VoidCallback? onProfile,
 }) async {
   tester.view.physicalSize = surfaceSize;
   tester.view.devicePixelRatio = 1;
@@ -49,9 +61,9 @@ Future<void> _pumpDashboard(
       theme: theme ?? BodyTheme.light(),
       home: Builder(
         builder: (context) => MediaQuery(
-          data: MediaQuery.of(context).copyWith(
-            textScaler: TextScaler.linear(textScale),
-          ),
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
           child: DashboardView(
             history: history,
             profile: profile,
@@ -61,7 +73,16 @@ Future<void> _pumpDashboard(
             notice: notice,
             onMeasure: () {},
             onManual: () {},
-            onProfile: () {},
+            onProfile: onProfile ?? () {},
+            garminAccount: garminAccount,
+            garminLoading: garminLoading,
+            garminBusy: garminBusy,
+            garminPendingReadings: garminPendingReadings,
+            garminSyncCompleted: garminSyncCompleted,
+            garminSyncTotal: garminSyncTotal,
+            onGarminConnect: onGarminConnect,
+            onGarminSync: onGarminSync,
+            onGarminDisconnect: onGarminDisconnect,
           ),
         ),
       ),
@@ -83,8 +104,9 @@ void main() {
     expect(find.text('Add a profile for estimates'), findsOneWidget);
   });
 
-  testWidgets('populated home shows measurements with one decimal',
-      (tester) async {
+  testWidgets('populated home shows measurements with one decimal', (
+    tester,
+  ) async {
     final history = [
       _measurement(timestamp: now),
       _measurement(
@@ -107,6 +129,50 @@ void main() {
     expect(find.text('Add a profile for estimates'), findsNothing);
   });
 
+  testWidgets('the native tab bar never minimizes while scrolling', (
+    tester,
+  ) async {
+    await _pumpDashboard(tester, history: []);
+
+    final scaffold = tester.widget<AdaptiveScaffold>(
+      find.byType(AdaptiveScaffold),
+    );
+    expect(scaffold.minimizeBehavior, TabBarMinimizeBehavior.never);
+  });
+
+  testWidgets('the Set up profile action is wired to the profile editor', (
+    tester,
+  ) async {
+    var taps = 0;
+    await _pumpDashboard(tester, history: [], onProfile: () => taps++);
+
+    await tester.tap(find.text('Set up profile'));
+    await tester.pumpAndSettle();
+
+    expect(taps, 1);
+  });
+
+  testWidgets('derived body metrics populate from a scale reading', (
+    tester,
+  ) async {
+    await _pumpDashboard(
+      tester,
+      history: [_measurement(timestamp: now)],
+      profile: _profile,
+    );
+
+    expect(find.text('Muscle mass'), findsOneWidget);
+    expect(find.text('54.1 kg'), findsOneWidget);
+    expect(find.text('Body water'), findsOneWidget);
+    expect(find.text('54.0%'), findsOneWidget);
+    expect(find.text('Bone mass'), findsOneWidget);
+    expect(find.text('2.9 kg'), findsOneWidget);
+    expect(find.text('Visceral fat'), findsOneWidget);
+    expect(find.text('12'), findsOneWidget);
+    expect(find.text('Metabolic age'), findsOneWidget);
+    expect(find.text('31 yrs'), findsOneWidget);
+  });
+
   testWidgets('metric tiles survive a manual-only reading', (tester) async {
     final history = [
       _measurement(
@@ -127,17 +193,12 @@ void main() {
     expect(find.textContaining('From '), findsNWidgets(2));
   });
 
-  testWidgets('a raw impedance reading without a profile asks for one',
-      (tester) async {
+  testWidgets('a raw impedance reading without a profile asks for one', (
+    tester,
+  ) async {
     await _pumpDashboard(
       tester,
-      history: [
-        _measurement(
-          timestamp: now,
-          bmi: null,
-          bodyFatPercent: null,
-        ),
-      ],
+      history: [_measurement(timestamp: now, bmi: null, bodyFatPercent: null)],
     );
 
     expect(find.text('Add a profile'), findsOneWidget);
@@ -184,8 +245,9 @@ void main() {
     expect(find.text('Reading'), findsOneWidget);
   });
 
-  testWidgets('trends shows chart, source labels and semantics summary',
-      (tester) async {
+  testWidgets('trends shows chart, source labels and semantics summary', (
+    tester,
+  ) async {
     final handle = tester.ensureSemantics();
     final history = [
       _measurement(timestamp: now),
@@ -214,8 +276,9 @@ void main() {
     handle.dispose();
   });
 
-  testWidgets('one reading explains that the trend needs another reading',
-      (tester) async {
+  testWidgets('one reading explains that the trend needs another reading', (
+    tester,
+  ) async {
     await _pumpDashboard(
       tester,
       history: [_measurement(timestamp: now)],
@@ -245,6 +308,105 @@ void main() {
     expect(find.text('Edit profile'), findsOneWidget);
   });
 
+  testWidgets('profile tab invites a Garmin connection when signed out', (
+    tester,
+  ) async {
+    await _pumpDashboard(tester, history: [], profile: _profile);
+
+    await tester.tap(find.text('Profile'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Garmin Connect'), findsOneWidget);
+    expect(
+      find.textContaining('Send weight and body-composition readings'),
+      findsOneWidget,
+    );
+    expect(find.text('Connect Garmin'), findsOneWidget);
+  });
+
+  testWidgets('profile tab shows Garmin account and pending readings', (
+    tester,
+  ) async {
+    await _pumpDashboard(
+      tester,
+      history: [_measurement(timestamp: now)],
+      profile: _profile,
+      garminAccount: GarminAccount(
+        email: 'rider@example.com',
+        accessToken: 'access',
+        refreshToken: 'refresh',
+        clientId: 'client',
+        accessTokenExpiresAt: DateTime(2030),
+      ),
+      garminPendingReadings: 2,
+      onGarminSync: () {},
+      onGarminDisconnect: () {},
+    );
+
+    await tester.tap(find.text('Profile'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Connected'), findsOneWidget);
+    expect(find.text('rider@example.com'), findsOneWidget);
+    expect(find.text('Sync 2 readings'), findsOneWidget);
+    expect(find.text('Disconnect'), findsOneWidget);
+    expect(find.textContaining('2 readings are ready to send'), findsOneWidget);
+  });
+
+  testWidgets('Garmin sync progress is announced on the profile tab', (
+    tester,
+  ) async {
+    await _pumpDashboard(
+      tester,
+      history: [_measurement(timestamp: now)],
+      profile: _profile,
+      garminAccount: GarminAccount(
+        email: 'rider@example.com',
+        accessToken: 'access',
+        refreshToken: 'refresh',
+        clientId: 'client',
+        accessTokenExpiresAt: DateTime(2030),
+      ),
+      garminBusy: true,
+      garminSyncCompleted: 1,
+      garminSyncTotal: 3,
+      onGarminSync: () {},
+      onGarminDisconnect: () {},
+    );
+
+    await tester.tap(find.text('Profile'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Uploading 1 of 3…'), findsOneWidget);
+    expect(find.text('Syncing…'), findsOneWidget);
+  });
+
+  testWidgets('profile tab reports when all readings are synced', (
+    tester,
+  ) async {
+    await _pumpDashboard(
+      tester,
+      history: [_measurement(timestamp: now)],
+      profile: _profile,
+      garminAccount: GarminAccount(
+        email: 'rider@example.com',
+        accessToken: 'access',
+        refreshToken: 'refresh',
+        clientId: 'client',
+        accessTokenExpiresAt: DateTime(2030),
+      ),
+      garminPendingReadings: 0,
+      onGarminSync: () {},
+      onGarminDisconnect: () {},
+    );
+
+    await tester.tap(find.text('Profile'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('All readings are synced.'), findsOneWidget);
+    expect(find.text('Sync readings'), findsOneWidget);
+  });
+
   testWidgets('dark theme uses the dark ink palette', (tester) async {
     await _pumpDashboard(
       tester,
@@ -255,6 +417,43 @@ void main() {
 
     final weight = tester.widget<Text>(find.text('72.4'));
     expect(weight.style?.color, BodyColors.dark.ink);
+  });
+
+  testWidgets('Garmin card wraps a long account email at large text scale', (
+    tester,
+  ) async {
+    await _pumpDashboard(
+      tester,
+      history: [_measurement(timestamp: now)],
+      profile: _profile,
+      garminAccount: GarminAccount(
+        email: 'a.very.long.garmin.account.address@example.com',
+        accessToken: 'access',
+        refreshToken: 'refresh',
+        clientId: 'client',
+        accessTokenExpiresAt: DateTime(2030),
+      ),
+      garminPendingReadings: 3,
+      onGarminSync: () {},
+      onGarminDisconnect: () {},
+      textScale: 2,
+      surfaceSize: const Size(320, 640),
+    );
+
+    await tester.tap(find.text('Profile'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('a.very.long.garmin.account.address@example.com'),
+      200,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('a.very.long.garmin.account.address@example.com'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('320px wide at 2x text scale does not overflow', (tester) async {

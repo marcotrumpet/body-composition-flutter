@@ -16,13 +16,37 @@ This project is not affiliated with or endorsed by Xiaomi or Garmin.
 - Weight, BMI, impedance and estimated body composition
 - Local measurement history and weight trends
 - Optional user profile for measurement estimates; weight-only readings work without one
+- Optional Garmin Connect sync with MFA, token refresh and duplicate-free uploads
 - Adaptive iOS and Android interface using `adaptive_platform_ui`
 - Light and dark palettes with contrast-checked semantic tokens
 - Native iOS Liquid Glass navigation where supported, with platform fallbacks
 
 ## Status
 
-**Work in progress.** Bluetooth integration and composition estimates need physical-device validation. Garmin synchronization is not implemented. Health-related estimates are informational and are not medical measurements.
+**Work in progress.** Bluetooth integration and composition estimates need physical-device validation. Garmin sync uses Garmin Connect's mobile sign-in and upload endpoints (an unofficial API), can be rate-limited, and needs validation with a real Garmin account. Health-related estimates are informational and are not medical measurements.
+
+## Garmin Connect sync
+
+Open the Profile tab, tap **Connect Garmin**, and sign in with your Garmin
+account. Then tap **Sync readings** to upload any readings that have not been
+sent yet. The app uses the same `weight` FIT file format as the upstream
+WebBodyComposition project: weight, body fat, hydration, bone mass, muscle mass,
+visceral fat rating, physique rating, metabolic age and BMI.
+
+- The Garmin password is used once to authorize the device and is never stored.
+- Garmin OAuth tokens are kept in the platform Keychain/Keystore via
+  `flutter_secure_storage`.
+- MFA verification codes are supported.
+- Successful uploads are recorded locally per Garmin account, so tapping Sync
+  again only sends new readings. Garmin's "already uploaded" response is also
+  treated as success.
+- Without a measurement profile, only weight and BMI can be sent.
+
+Garmin does not publish a body-composition write API. This integration uses the
+same unofficial mobile endpoints as existing community clients, so Garmin may
+rate-limit or change them at any time. See
+[docs/garmin-sync.md](docs/garmin-sync.md) for implementation details and
+troubleshooting.
 
 The project includes native iOS and Android runners. Follow the Flutter and native platform prerequisites for your development machine.
 

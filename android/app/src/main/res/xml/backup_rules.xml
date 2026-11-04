@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- flutter_secure_storage keeps its encrypted values and keys bound to this
+     device. Restoring those preferences to another device fails to decrypt,
+     so exclude them from cloud backup. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+</full-backup-content>

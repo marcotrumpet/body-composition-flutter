@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../models/garmin_account.dart';
 import '../models/measurement.dart';
 import '../models/user_profile.dart';
 import '../services/scale_ble.dart';
@@ -24,6 +25,15 @@ class DashboardView extends StatefulWidget {
     required this.onMeasure,
     required this.onManual,
     required this.onProfile,
+    this.garminAccount,
+    this.garminLoading = false,
+    this.garminBusy = false,
+    this.garminPendingReadings = 0,
+    this.garminSyncCompleted,
+    this.garminSyncTotal,
+    this.onGarminConnect,
+    this.onGarminSync,
+    this.onGarminDisconnect,
   });
 
   final List<Measurement> history;
@@ -35,6 +45,15 @@ class DashboardView extends StatefulWidget {
   final VoidCallback onMeasure;
   final VoidCallback onManual;
   final VoidCallback onProfile;
+  final GarminAccount? garminAccount;
+  final bool garminLoading;
+  final bool garminBusy;
+  final int garminPendingReadings;
+  final int? garminSyncCompleted;
+  final int? garminSyncTotal;
+  final VoidCallback? onGarminConnect;
+  final VoidCallback? onGarminSync;
+  final VoidCallback? onGarminDisconnect;
 
   @override
   State<DashboardView> createState() => _DashboardViewState();
@@ -109,6 +128,9 @@ class _DashboardViewState extends State<DashboardView> {
 
     return AdaptiveScaffold(
       backgroundColor: colors.canvas,
+      // Keep the native tab bar at full size while the user scrolls. The
+      // default automatic behavior shrinks it on iOS 26.
+      minimizeBehavior: TabBarMinimizeBehavior.never,
       appBar: AdaptiveAppBar(
         title: switch (tab) {
           0 => 'Body Composition',
@@ -178,6 +200,15 @@ class _DashboardViewState extends State<DashboardView> {
                 notice: widget.notice,
                 onProfile: widget.onProfile,
                 bottomClearance: bottomClearance,
+                garminAccount: widget.garminAccount,
+                garminLoading: widget.garminLoading,
+                garminBusy: widget.garminBusy,
+                garminPendingReadings: widget.garminPendingReadings,
+                garminSyncCompleted: widget.garminSyncCompleted,
+                garminSyncTotal: widget.garminSyncTotal,
+                onGarminConnect: widget.onGarminConnect,
+                onGarminSync: widget.onGarminSync,
+                onGarminDisconnect: widget.onGarminDisconnect,
               ),
             ),
           ],
@@ -232,11 +263,7 @@ class _HomeTab extends StatelessWidget {
       storageKey: const PageStorageKey<String>('home'),
       bottom: bottomClearance,
       children: [
-        _HeroCard(
-          latest: latest,
-          previous: _previous,
-          loading: loadingHistory,
-        ),
+        _HeroCard(latest: latest, previous: _previous, loading: loadingHistory),
         const SizedBox(height: BodySpace.lg),
         SizedBox(
           width: double.infinity,
@@ -262,6 +289,9 @@ class _HomeTab extends StatelessWidget {
             style: AdaptiveButtonStyle.plain,
             size: AdaptiveButtonSize.large,
             minSize: const Size(0, BodySpace.minimumTapTarget),
+            // The iOS 26 native title-mode button collapses to a zero-width
+            // platform view when minWidth is 0, leaving no hit area.
+            useNative: false,
           ),
         ),
         NoticeSlot(notice: notice),
@@ -284,11 +314,7 @@ class _HomeTab extends StatelessWidget {
           const SizedBox(height: BodySpace.xl),
           const SectionLabel('Body metrics'),
           const SizedBox(height: BodySpace.md),
-          _MetricsSection(
-            latest: latest,
-            estimate: estimate,
-            profile: profile,
-          ),
+          _MetricsSection(latest: latest, estimate: estimate, profile: profile),
         ] else if (!loadingHistory) ...[
           const SizedBox(height: BodySpace.lg),
           const EmptyPanel(
@@ -410,9 +436,7 @@ class _HeroCard extends StatelessWidget {
                 ),
                 child: Text(
                   'kg',
-                  style: BodyType.title.copyWith(
-                    color: colors.secondaryInk,
-                  ),
+                  style: BodyType.title.copyWith(color: colors.secondaryInk),
                 ),
               ),
             ],
@@ -420,10 +444,7 @@ class _HeroCard extends StatelessWidget {
         ),
         const SizedBox(height: BodySpace.sm),
         Text(
-          [
-            if (bmi != null) 'BMI ${formatBmi(bmi)}',
-            date,
-          ].join(' · '),
+          [if (bmi != null) 'BMI ${formatBmi(bmi)}', date].join(' · '),
           style: BodyType.caption.copyWith(color: colors.secondaryInk),
         ),
         if (delta != null) ...[
@@ -463,27 +484,31 @@ class _MetricsSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = BodyColors.of(context);
     final estimateReading = estimate;
+    final metrics = estimateReading?.estimatesFor(profile);
     final older =
-        estimateReading != null && estimateReading.timestamp != latest.timestamp;
+        estimateReading != null &&
+        estimateReading.timestamp != latest.timestamp;
     final caption = older
         ? 'From ${formatDay(context, estimateReading.timestamp)}'
         : null;
-    final hasBodyFat = estimateReading?.bodyFatPercent != null;
+    final bodyFatPercent =
+        estimateReading?.bodyFatPercent ?? metrics?.fatPercent;
+    final hasBodyFat = bodyFatPercent != null;
     final bodyFatCaption = hasBodyFat
         ? caption
         : profile == null
-            ? 'Add a profile'
-            : 'Not available';
+        ? 'Add a profile'
+        : 'Not available';
 
     final bodyFat = MetricTile(
-      icon: Icons.water_drop_outlined,
+      icon: Icons.percent_rounded,
       label: 'Body fat',
-      value: formatBodyFat(estimateReading?.bodyFatPercent),
+      value: formatBodyFat(bodyFatPercent),
       badge: 'est.',
       caption: bodyFatCaption,
       iconColor: colors.bodyFat,
       semanticLabel: hasBodyFat
-          ? 'Body fat estimate ${estimateReading!.bodyFatPercent!.toStringAsFixed(1)} percent'
+          ? 'Body fat estimate ${bodyFatPercent.toStringAsFixed(1)} percent'
           : 'Body fat estimate not available',
     );
     final impedance = MetricTile(
@@ -497,6 +522,58 @@ class _MetricsSection extends StatelessWidget {
           : 'Impedance ${estimateReading!.impedance} ohms',
     );
 
+    final tiles = <Widget>[
+      bodyFat,
+      if (metrics != null) ...[
+        MetricTile(
+          icon: Icons.fitness_center_rounded,
+          label: 'Muscle mass',
+          value: '${formatWeight(metrics.muscleMassKg)} kg',
+          badge: 'est.',
+          iconColor: colors.accentText,
+          semanticLabel:
+              'Muscle mass estimate ${metrics.muscleMassKg.toStringAsFixed(1)} kilograms',
+        ),
+        MetricTile(
+          icon: Icons.water_drop_outlined,
+          label: 'Body water',
+          value: '${metrics.waterPercent.toStringAsFixed(1)}%',
+          badge: 'est.',
+          iconColor: colors.impedance,
+          semanticLabel:
+              'Body water estimate ${metrics.waterPercent.toStringAsFixed(1)} percent',
+        ),
+        MetricTile(
+          icon: Icons.accessibility_new_rounded,
+          label: 'Bone mass',
+          value: '${formatWeight(metrics.boneMassKg)} kg',
+          badge: 'est.',
+          iconColor: colors.accentText,
+          semanticLabel:
+              'Bone mass estimate ${metrics.boneMassKg.toStringAsFixed(1)} kilograms',
+        ),
+        MetricTile(
+          icon: Icons.favorite_border_rounded,
+          label: 'Visceral fat',
+          value: '${metrics.visceralFatRating.round()}',
+          badge: 'est.',
+          iconColor: colors.danger,
+          semanticLabel:
+              'Visceral fat estimate ${metrics.visceralFatRating.round()}',
+        ),
+        MetricTile(
+          icon: Icons.hourglass_bottom_rounded,
+          label: 'Metabolic age',
+          value: '${metrics.metabolicAge.round()} yrs',
+          badge: 'est.',
+          iconColor: colors.success,
+          semanticLabel:
+              'Metabolic age estimate ${metrics.metabolicAge.round()} years',
+        ),
+      ],
+      impedance,
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -507,18 +584,19 @@ class _MetricsSection extends StatelessWidget {
             if (stack) {
               return Column(
                 children: [
-                  bodyFat,
-                  const SizedBox(height: BodySpace.md),
-                  impedance,
+                  for (var index = 0; index < tiles.length; index++) ...[
+                    if (index > 0) const SizedBox(height: BodySpace.md),
+                    tiles[index],
+                  ],
                 ],
               );
             }
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            final width = (constraints.maxWidth - BodySpace.md) / 2;
+            return Wrap(
+              spacing: BodySpace.md,
+              runSpacing: BodySpace.md,
               children: [
-                Expanded(child: bodyFat),
-                const SizedBox(width: BodySpace.md),
-                Expanded(child: impedance),
+                for (final tile in tiles) SizedBox(width: width, child: tile),
               ],
             );
           },
@@ -563,8 +641,7 @@ class _ScanningCard extends StatelessWidget {
       ScalePhase.idle => '',
     };
     final message = switch (phase) {
-      ScalePhase.discovering =>
-        'Wake the scale and keep it near your phone.',
+      ScalePhase.discovering => 'Wake the scale and keep it near your phone.',
       ScalePhase.connecting => 'This only takes a moment.',
       ScalePhase.waitingForReading =>
         'Stand still with bare feet until the reading is saved.',
@@ -599,9 +676,7 @@ class _ScanningCard extends StatelessWidget {
                     Expanded(
                       child: Container(
                         height: 2,
-                        color: index <= step
-                            ? colors.accent
-                            : colors.border,
+                        color: index <= step ? colors.accent : colors.border,
                       ),
                     ),
                   _PhaseStep(
@@ -638,9 +713,11 @@ class _PhaseStep extends StatelessWidget {
     final background = complete
         ? colors.success
         : active
-            ? colors.accent
-            : colors.surfaceMuted;
-    final foreground = complete || active ? colors.onAccent : colors.secondaryInk;
+        ? colors.accent
+        : colors.surfaceMuted;
+    final foreground = complete || active
+        ? colors.onAccent
+        : colors.secondaryInk;
 
     return SizedBox(
       width: 78,

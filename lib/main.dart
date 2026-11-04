@@ -3,15 +3,20 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
+import 'models/garmin_account.dart';
 import 'models/measurement.dart';
 import 'models/user_profile.dart';
 import 'services/bluetooth_permissions.dart';
+import 'services/garmin_client.dart';
+import 'services/garmin_service.dart';
 import 'services/measurement_store.dart';
 import 'services/scale_ble.dart';
 import 'ui/body_format.dart';
 import 'ui/body_theme.dart';
+import 'ui/body_tokens.dart';
 import 'ui/dashboard_view.dart';
 import 'ui/dialogs.dart';
+import 'ui/garmin_dialogs.dart';
 import 'ui/widgets/body_surface.dart';
 
 void main() => runApp(const BodyCompositionApp());
@@ -30,9 +35,16 @@ class BodyCompositionApp extends StatelessWidget {
       // AdaptiveScaffold owns the native toolbar and tab bar on iOS. Wrapping
       // this navigator in AdaptiveToolbarHost would place a fixed toolbar
       // above the Navigator, which stays visible over Cupertino sheets.
-      builder: (context, child) => CupertinoTheme(
-        data: BodyTheme.cupertino(Theme.of(context).brightness),
-        child: child!,
+      //
+      // Paint the app canvas behind the Navigator so Cupertino sheets, which
+      // scale the previous route down, reveal the canvas instead of the
+      // WidgetsApp default black background in the gap above them.
+      builder: (context, child) => ColoredBox(
+        color: BodyColors.of(context).canvas,
+        child: CupertinoTheme(
+          data: BodyTheme.cupertino(Theme.of(context).brightness),
+          child: child!,
+        ),
       ),
       home: const Dashboard(),
     );
@@ -51,6 +63,7 @@ class _DashboardState extends State<Dashboard> {
   final profileStore = UserProfileStore();
   final ble = ScaleBle();
   final bluetoothPermissions = BluetoothPermissions();
+  final garmin = GarminService();
 
   List<Measurement> history = [];
   UserProfile? profile;
@@ -58,6 +71,12 @@ class _DashboardState extends State<Dashboard> {
   bool loadingProfile = true;
   ScalePhase phase = ScalePhase.idle;
   DashboardNotice? notice;
+  GarminAccount? garminAccount;
+  String? lastGarminEmail;
+  bool loadingGarmin = true;
+  bool garminBusy = false;
+  int garminSyncCompleted = 0;
+  int garminSyncTotal = 0;
 
   Timer? _noticeTimer;
   StreamSubscription<Measurement>? _measurementSub;
@@ -75,6 +94,7 @@ class _DashboardState extends State<Dashboard> {
     super.initState();
     unawaited(_reload());
     unawaited(_loadProfile());
+    unawaited(_loadGarmin());
     _measurementSub = ble.measurements.listen(
       (measurement) => unawaited(_onMeasurement(measurement)),
     );
@@ -125,6 +145,263 @@ class _DashboardState extends State<Dashboard> {
     }
   }
 
+  Future<void> _loadGarmin() async {
+    try {
+      await garmin.load();
+    } catch (_) {
+      // A keychain or preferences failure must not block the dashboard.
+    }
+    if (!mounted) return;
+    setState(() {
+      garminAccount = garmin.account;
+      loadingGarmin = false;
+    });
+  }
+
+  Future<void> _connectGarmin() async {
+    if (garminBusy) return;
+    final credentials = await showGarminLoginDialog(
+      context,
+      initialEmail: garminAccount?.email ?? lastGarminEmail,
+    );
+    if (credentials == null || !mounted) return;
+
+    setState(() {
+      lastGarminEmail = credentials.email;
+      garminBusy = true;
+      garminSyncCompleted = 0;
+      garminSyncTotal = 0;
+    });
+
+    try {
+      final result = await garmin.connect(
+        email: credentials.email,
+        password: credentials.password,
+      );
+      if (!mounted) return;
+
+      if (result.requiresMfa) {
+        final code = await showGarminMfaDialog(
+          context,
+          method: result.challenge!.method,
+          email: credentials.email,
+        );
+        if (!mounted) return;
+        if (code == null) {
+          setState(() => garminBusy = false);
+          return;
+        }
+        await garmin.completeMfa(code);
+        if (!mounted) return;
+      }
+
+      setState(() {
+        garminAccount = garmin.account;
+        garminBusy = false;
+      });
+      final pending = garmin.pendingCount(history);
+      _showNotice(
+        DashboardNotice(
+          tone: NoticeTone.success,
+          title: 'Garmin connected',
+          message: pending == 0
+              ? 'Signed in as ${garminAccount!.email}.'
+              : 'Signed in as ${garminAccount!.email}. $pending '
+                    '${pending == 1 ? 'reading is' : 'readings are'} ready to sync.',
+        ),
+        autoDismiss: true,
+      );
+    } on GarminException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        garminBusy = false;
+        garminAccount = garmin.account;
+      });
+      _showNotice(_garminNotice(error, retry: _connectGarmin));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        garminBusy = false;
+        garminAccount = garmin.account;
+      });
+      _showNotice(
+        DashboardNotice(
+          tone: NoticeTone.danger,
+          title: "Couldn't connect Garmin",
+          message: 'Try again. If it keeps happening, restart the app.',
+          actionLabel: 'Try again',
+          onAction: () => unawaited(_connectGarmin()),
+        ),
+      );
+    }
+  }
+
+  Future<void> _syncGarmin() async {
+    if (garminBusy) return;
+    if (garminAccount == null) {
+      await _connectGarmin();
+      return;
+    }
+
+    final pending = garmin.pendingCount(history);
+    if (pending == 0) {
+      _showNotice(
+        const DashboardNotice(
+          tone: NoticeTone.info,
+          title: 'Everything is synced',
+          message: 'New readings will appear here after your next measurement.',
+        ),
+        autoDismiss: true,
+      );
+      return;
+    }
+
+    setState(() {
+      garminBusy = true;
+      garminSyncCompleted = 0;
+      garminSyncTotal = pending;
+    });
+
+    try {
+      final result = await garmin.sync(
+        history: history,
+        profile: profile,
+        onProgress: (completed, total) {
+          if (!mounted) return;
+          setState(() {
+            garminSyncCompleted = completed;
+            garminSyncTotal = total;
+          });
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        garminBusy = false;
+        garminAccount = garmin.account;
+      });
+
+      if (result.hadFailures) {
+        final attempted = result.uploaded + result.failed;
+        _showNotice(
+          DashboardNotice(
+            tone: NoticeTone.danger,
+            title: 'Some readings were not sent',
+            message:
+                '${result.uploaded} of $attempted readings reached Garmin. '
+                '${result.firstError ?? ''}',
+            actionLabel: 'Try again',
+            onAction: () => unawaited(_syncGarmin()),
+          ),
+        );
+      } else if (result.uploaded == 0) {
+        _showNotice(
+          const DashboardNotice(
+            tone: NoticeTone.info,
+            title: 'Everything is synced',
+            message: 'There were no new readings to send.',
+          ),
+          autoDismiss: true,
+        );
+      } else {
+        _showNotice(
+          DashboardNotice(
+            tone: NoticeTone.success,
+            title: 'Sent to Garmin',
+            message:
+                '${result.uploaded} '
+                '${result.uploaded == 1 ? 'reading was' : 'readings were'} '
+                'uploaded to Garmin Connect.',
+          ),
+          autoDismiss: true,
+        );
+      }
+    } on GarminException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        garminBusy = false;
+        garminAccount = garmin.account;
+      });
+      final retry = error.requiresReconnect ? _connectGarmin : _syncGarmin;
+      _showNotice(_garminNotice(error, retry: retry));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        garminBusy = false;
+        garminAccount = garmin.account;
+      });
+      _showNotice(
+        DashboardNotice(
+          tone: NoticeTone.danger,
+          title: "Couldn't sync with Garmin",
+          message: 'Try again. Readings that were sent will not be duplicated.',
+          actionLabel: 'Try again',
+          onAction: () => unawaited(_syncGarmin()),
+        ),
+      );
+    }
+  }
+
+  Future<void> _disconnectGarmin() async {
+    if (garminBusy) return;
+    await showGarminDisconnectDialog(
+      context,
+      onDisconnect: () async {
+        try {
+          await garmin.disconnect();
+          if (!mounted) return;
+          setState(() => garminAccount = null);
+          _showNotice(
+            const DashboardNotice(
+              tone: NoticeTone.success,
+              title: 'Garmin disconnected',
+              message: 'Readings stay in your history and on this device.',
+            ),
+            autoDismiss: true,
+          );
+        } catch (_) {
+          if (!mounted) return;
+          _showNotice(
+            const DashboardNotice(
+              tone: NoticeTone.danger,
+              title: "Couldn't disconnect Garmin",
+              message: 'Try again.',
+            ),
+          );
+        }
+      },
+    );
+  }
+
+  DashboardNotice _garminNotice(
+    GarminException error, {
+    required Future<void> Function() retry,
+  }) {
+    final title = switch (error.kind) {
+      GarminFailureKind.invalidCredentials => 'Garmin sign-in failed',
+      GarminFailureKind.mfaFailed => 'Verification failed',
+      GarminFailureKind.rateLimited => 'Garmin is limiting requests',
+      GarminFailureKind.blocked => 'Garmin blocked the request',
+      GarminFailureKind.network => "Couldn't reach Garmin",
+      GarminFailureKind.unauthorized => 'Garmin session expired',
+      GarminFailureKind.uploadRejected => 'Garmin rejected a reading',
+      GarminFailureKind.unexpected => 'Garmin sync failed',
+    };
+    final message = error.kind == GarminFailureKind.unauthorized
+        ? 'Reconnect your Garmin account to keep syncing.'
+        : error.message;
+    final actionLabel = error.kind == GarminFailureKind.unauthorized
+        ? 'Reconnect'
+        : 'Try again';
+
+    return DashboardNotice(
+      tone: NoticeTone.danger,
+      title: title,
+      message: message,
+      actionLabel: actionLabel,
+      onAction: () => unawaited(retry()),
+    );
+  }
+
   void _showNotice(DashboardNotice value, {bool autoDismiss = false}) {
     _noticeTimer?.cancel();
     _noticeTimer = null;
@@ -148,10 +425,7 @@ class _DashboardState extends State<Dashboard> {
   }
 
   Future<void> _editProfile() async {
-    final result = await showProfileDialog(
-      context,
-      initialProfile: profile,
-    );
+    final result = await showProfileDialog(context, initialProfile: profile);
     if (result == null || !mounted) return;
 
     try {
@@ -293,55 +567,55 @@ class _DashboardState extends State<Dashboard> {
 
   DashboardNotice _noticeFor(ScaleFailure failure) {
     DashboardNotice retry(String title, String message) => DashboardNotice(
-          tone: NoticeTone.danger,
-          title: title,
-          message: message,
-          actionLabel: 'Try again',
-          onAction: () => unawaited(_scan()),
-        );
+      tone: NoticeTone.danger,
+      title: title,
+      message: message,
+      actionLabel: 'Try again',
+      onAction: () => unawaited(_scan()),
+    );
 
     return switch (failure.kind) {
       ScaleFailureKind.bluetoothOff => retry(
-          'Bluetooth is off',
-          'Turn on Bluetooth in Settings or Control Center, then try again.',
-        ),
+        'Bluetooth is off',
+        'Turn on Bluetooth in Settings or Control Center, then try again.',
+      ),
       ScaleFailureKind.bluetoothUnavailable => const DashboardNotice(
-          tone: NoticeTone.danger,
-          title: "Bluetooth isn't available",
-          message: "This device can't connect to Bluetooth scales.",
-        ),
+        tone: NoticeTone.danger,
+        title: "Bluetooth isn't available",
+        message: "This device can't connect to Bluetooth scales.",
+      ),
       ScaleFailureKind.permissionDenied => DashboardNotice(
-          tone: NoticeTone.danger,
-          title: 'Bluetooth access needed',
-          message: 'Allow Bluetooth access in Settings to find your scale.',
-          actionLabel: 'Open settings',
-          onAction: () => unawaited(bluetoothPermissions.openSettings()),
-        ),
+        tone: NoticeTone.danger,
+        title: 'Bluetooth access needed',
+        message: 'Allow Bluetooth access in Settings to find your scale.',
+        actionLabel: 'Open settings',
+        onAction: () => unawaited(bluetoothPermissions.openSettings()),
+      ),
       ScaleFailureKind.scaleNotFound => retry(
-          'No scale found',
-          'Wake the scale, keep it near your phone, and make sure it is not connected to another device.',
-        ),
+        'No scale found',
+        'Wake the scale, keep it near your phone, and make sure it is not connected to another device.',
+      ),
       ScaleFailureKind.connectionFailed => retry(
-          "Couldn't connect",
-          'Step off the scale, wake it, and try again.',
-        ),
+        "Couldn't connect",
+        'Step off the scale, wake it, and try again.',
+      ),
       ScaleFailureKind.connectionLost => retry(
-          'Connection lost',
-          'The scale disconnected before the reading finished.',
-        ),
+        'Connection lost',
+        'The scale disconnected before the reading finished.',
+      ),
       ScaleFailureKind.unsupportedScale => const DashboardNotice(
-          tone: NoticeTone.danger,
-          title: "This scale isn't supported",
-          message: 'It does not provide body-composition readings.',
-        ),
+        tone: NoticeTone.danger,
+        title: "This scale isn't supported",
+        message: 'It does not provide body-composition readings.',
+      ),
       ScaleFailureKind.readingTimeout => retry(
-          'No reading received',
-          'Step on with bare feet and stand still, then try again.',
-        ),
+        'No reading received',
+        'Step on with bare feet and stand still, then try again.',
+      ),
       ScaleFailureKind.unknown => retry(
-          'Something went wrong',
-          'Try again. If it keeps happening, restart the app.',
-        ),
+        'Something went wrong',
+        'Try again. If it keeps happening, restart the app.',
+      ),
     };
   }
 
@@ -362,7 +636,8 @@ class _DashboardState extends State<Dashboard> {
       final detail = [
         '${formatWeight(measurement.weightKg)} kg',
         formatDateTime(context, measurement.timestamp),
-        if (!hasEstimate) 'Body composition was not available for this reading.',
+        if (!hasEstimate)
+          'Body composition was not available for this reading.',
         if (profile == null) 'Add your profile to estimate body fat.',
       ].join(' · ');
       _showNotice(
@@ -545,6 +820,19 @@ class _DashboardState extends State<Dashboard> {
       onMeasure: scanning ? _cancel : _scan,
       onManual: _manual,
       onProfile: _editProfile,
+      garminAccount: garminAccount,
+      garminLoading: loadingGarmin,
+      garminBusy: garminBusy,
+      garminPendingReadings: garminAccount == null
+          ? 0
+          : garmin.pendingCount(history),
+      garminSyncCompleted: garminBusy ? garminSyncCompleted : null,
+      garminSyncTotal: garminBusy && garminSyncTotal > 0
+          ? garminSyncTotal
+          : null,
+      onGarminConnect: () => unawaited(_connectGarmin()),
+      onGarminSync: () => unawaited(_syncGarmin()),
+      onGarminDisconnect: () => unawaited(_disconnectGarmin()),
     );
   }
 }

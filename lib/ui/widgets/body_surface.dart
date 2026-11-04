@@ -132,6 +132,9 @@ class NoticeCard extends StatelessWidget {
                       style: AdaptiveButtonStyle.plain,
                       size: AdaptiveButtonSize.large,
                       minSize: const Size(0, BodySpace.minimumTapTarget),
+                      // Native iOS 26 title buttons with a zero min width
+                      // render without a tappable area.
+                      useNative: false,
                     ),
                   ],
                 ],
@@ -288,6 +291,9 @@ class EmptyPanel extends StatelessWidget {
               style: AdaptiveButtonStyle.plain,
               size: AdaptiveButtonSize.large,
               minSize: const Size(0, BodySpace.minimumTapTarget),
+              // Native iOS 26 title buttons with a zero min width render
+              // without a tappable area.
+              useNative: false,
             ),
           ],
         ],

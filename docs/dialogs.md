@@ -33,6 +33,27 @@ Dialogs and form sheets live in `lib/ui/dialogs.dart`; no dialog UI is built in
   dark-mode accent.
 - History reset uses the same adaptive alert with a destructive action.
 
+## Garmin sign-in
+
+- iOS uses the same Cupertino sheet pattern with a `CupertinoNavigationBar`
+  (Cancel / Sign in). The email field is not autofocused so the keyboard does
+  not cover the sheet as soon as it opens; the MFA sheet is autofocused because
+  the user is already waiting to type a code.
+- Android uses a scrollable `AlertDialog` with the same validators.
+- The Garmin password is only held in the dialog/controller for the lifetime of
+  the sign-in request. Tokens are written to secure storage by `GarminService`.
+
+## iOS 26 notes
+
+- `MaterialApp.builder` paints `BodyColors.canvas` behind the Navigator. Without
+  it, the scaled previous route leaves the WidgetsApp black background visible
+  in the gap above a Cupertino sheet.
+- Plain `AdaptiveButton` actions set `useNative: false`. The iOS 26 native
+  title-mode button uses `SizedBox(width: minSize.width)`, so a `Size(0, h)`
+  minimum produces a zero-width platform view that paints but cannot be tapped.
+- The tab bar uses `TabBarMinimizeBehavior.never`; the default automatic
+  behavior shrinks it while scrolling.
+
 ## Appearance
 
 - The app ships full light and dark palettes via `BodyTheme` and
