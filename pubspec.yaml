@@ -12,6 +12,7 @@ dependencies:
   device_info_plus: ^10.1.2
   shared_preferences: ^2.3.2
   fl_chart: ^0.69.0
+  adaptive_platform_ui: ^1.0.2
 dev_dependencies:
   flutter_test:
     sdk: flutter

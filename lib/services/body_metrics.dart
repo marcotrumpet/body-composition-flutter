@@ -56,18 +56,15 @@ class BodyMetrics {
     final base = sex == 'female' ? 0.245691014 : 0.18016894;
     var bone = (base - leanBodyCoefficient * 0.05158) * -1;
     bone += bone > 2.2 ? 0.1 : -0.1;
-    if ((sex == 'female' && bone > 5.1) || (sex == 'male' && bone > 5.2)) {
+    if ((sex == 'female' && bone > 5.1) || (sex == 'male' && bone > 5.2))
       bone = 8;
-    }
     return _clamp(bone, 0.5, 8);
   }
 
   double get muscleMassKg {
     var muscle = weightKg * (1 - fatPercent / 100) - boneMassKg;
-    if ((sex == 'female' && muscle >= 84) ||
-        (sex == 'male' && muscle >= 93.5)) {
+    if ((sex == 'female' && muscle >= 84) || (sex == 'male' && muscle >= 93.5))
       muscle = 120;
-    }
     return _clamp(muscle, 10, 120);
   }
 
@@ -85,9 +82,8 @@ class BodyMetrics {
     var value = sex == 'female'
         ? 864.6 + weightKg * 10.2036 - heightCm * 0.39336 - ageYears * 6.204
         : 877.8 + weightKg * 14.916 - heightCm * 0.726 - ageYears * 8.976;
-    if ((sex == 'female' && value > 2996) || (sex == 'male' && value > 2322)) {
+    if ((sex == 'female' && value > 2996) || (sex == 'male' && value > 2322))
       value = 5000;
-    }
     return _clamp(value, 500, 10000);
   }
 }

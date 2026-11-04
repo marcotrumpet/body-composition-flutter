@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import '../models/measurement.dart';
 import '../models/user_profile.dart';
 
@@ -27,55 +28,42 @@ class _DashboardViewState extends State<DashboardView> {
   int tab = 0;
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      extendBody: true,
+    return AdaptiveScaffold(
       backgroundColor: const Color(0xFFF1F4FF),
+      appBar: AdaptiveAppBar(
+        title: tab == 0 ? 'Body Composition' : tab == 1 ? 'Trends' : 'Profile',
+        useNativeToolbar: true,
+        actions: [
+          AdaptiveAppBarAction(
+            iosSymbol: 'slider.horizontal.3',
+            icon: Icons.tune_rounded,
+            label: 'Edit profile',
+            onPressed: widget.onProfile,
+          ),
+        ],
+      ),
+      bottomNavigationBar: AdaptiveBottomNavigationBar(
+        useNativeBottomBar: true,
+        items: [
+          AdaptiveNavigationDestination(icon: 'house.fill', label: 'Home'),
+          AdaptiveNavigationDestination(icon: 'chart.xyaxis.line', label: 'Trends'),
+          AdaptiveNavigationDestination(icon: 'person.crop.circle', label: 'Profile'),
+        ],
+        selectedIndex: tab,
+        onTap: (index) => setState(() => tab = index),
+      ),
       body: Stack(children: [
         const Positioned.fill(child: _Atmosphere()),
-        SafeArea(bottom: false, child: Column(children: [
-          Padding(padding: const EdgeInsets.fromLTRB(24, 16, 24, 12), child: Row(children: [
-            Container(padding: const EdgeInsets.all(11),
-              decoration: BoxDecoration(gradient: const LinearGradient(colors: [_blue, _purple]),
-                borderRadius: BorderRadius.circular(16)),
-              child: const Icon(Icons.monitor_weight_outlined, color: Colors.white)),
-            const SizedBox(width: 12),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(tab == 0 ? 'Body Composition' : tab == 1 ? 'Your trends' : 'Your profile',
-                style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: _ink)),
-              Text(tab == 0 ? 'Your wellness, beautifully measured' : 'Personal health insights',
-                style: TextStyle(fontSize: 12, color: _ink.withValues(alpha: .55))),
-            ])),
-            IconButton(onPressed: widget.onProfile, icon: const Icon(Icons.tune_rounded)),
-          ])),
-          Expanded(child: AnimatedSwitcher(duration: const Duration(milliseconds: 250),
-            child: KeyedSubtree(key: ValueKey(tab), child: tab == 0 ? _home() : tab == 1 ? _history() : _profile()))),
-        ])),
+        SafeArea(bottom: false, child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 250),
+          child: KeyedSubtree(
+            key: ValueKey(tab),
+            child: tab == 0 ? _home() : tab == 1 ? _history() : _profile(),
+          ),
+        )),
       ]),
-      bottomNavigationBar: SafeArea(minimum: const EdgeInsets.fromLTRB(24, 0, 24, 14),
-        child: _Glass(padding: const EdgeInsets.all(5), radius: 28,
-          child: Row(children: [
-            _nav(Icons.home_rounded, 'Home', 0),
-            _nav(Icons.insights_rounded, 'Trends', 1),
-            _nav(Icons.person_rounded, 'Profile', 2),
-          ]))),
     );
   }
-
-  Widget _nav(IconData icon, String title, int index) => Expanded(child: InkWell(
-    borderRadius: BorderRadius.circular(24), onTap: () => setState(() => tab = index),
-    child: AnimatedContainer(duration: const Duration(milliseconds: 220),
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      decoration: BoxDecoration(
-        gradient: tab == index ? const LinearGradient(colors: [_blue, _purple]) : null,
-        borderRadius: BorderRadius.circular(22)),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, color: tab == index ? Colors.white : _ink.withValues(alpha: .55)),
-        const SizedBox(height: 3),
-        Text(title, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
-          color: tab == index ? Colors.white : _ink.withValues(alpha: .6))),
-      ]),
-    ),
-  ));
 
   Widget _home() {
     final latest = widget.history.isEmpty ? null : widget.history.first;
@@ -109,17 +97,18 @@ class _DashboardViewState extends State<DashboardView> {
         Expanded(child: _metric(Icons.bolt_outlined, 'Impedance', latest?.impedance?.toDouble(), 'Ω', const Color(0xFF00A8B5))),
       ]),
       const SizedBox(height: 20),
-      Container(height: 58, decoration: BoxDecoration(
-        gradient: const LinearGradient(colors: [_blue, _purple]),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: _blue.withValues(alpha: .24), blurRadius: 22, offset: const Offset(0, 8))]),
-        child: FilledButton.icon(onPressed: widget.onMeasure,
-          style: FilledButton.styleFrom(backgroundColor: Colors.transparent, shadowColor: Colors.transparent),
-          icon: Icon(widget.scanning ? Icons.stop_circle_outlined : Icons.bluetooth_searching_rounded),
-          label: Text(widget.scanning ? 'Stop measuring' : 'Measure on scale',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)))),
+      SizedBox(width: double.infinity, child: AdaptiveButton(
+        onPressed: widget.onMeasure,
+        label: widget.scanning ? 'Stop measuring' : 'Measure on scale',
+        style: AdaptiveButtonStyle.filled,
+        size: AdaptiveButtonSize.large,
+      )),
       const SizedBox(height: 8),
-      TextButton.icon(onPressed: widget.onManual, icon: const Icon(Icons.add_rounded), label: const Text('Add measurement manually')),
+      Center(child: AdaptiveButton(
+        onPressed: widget.onManual,
+        label: 'Add measurement manually',
+        style: AdaptiveButtonStyle.tinted,
+      )),
       if (widget.scanning) const Padding(padding: EdgeInsets.all(12), child: Row(children: [
         SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
         SizedBox(width: 12), Text('Waiting for a stable scale reading…')])),
@@ -195,8 +184,7 @@ class _DashboardViewState extends State<DashboardView> {
         : '${widget.profile!.heightCm.toStringAsFixed(0)} cm · ${widget.profile!.ageYears} years · ${widget.profile!.sex}',
         textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF7A829C))),
       const SizedBox(height: 22),
-      FilledButton.icon(onPressed: widget.onProfile, icon: const Icon(Icons.edit_outlined),
-        label: const Text('Edit profile')),
+      AdaptiveButton(onPressed: widget.onProfile, label: 'Edit profile'),
     ])),
     const SizedBox(height: 16),
     const _Glass(radius: 22, padding: EdgeInsets.all(18),

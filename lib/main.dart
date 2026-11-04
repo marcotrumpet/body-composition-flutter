@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 
 import 'models/measurement.dart';
 import 'models/user_profile.dart';
@@ -22,6 +23,7 @@ class BodyCompositionApp extends StatelessWidget {
             colorScheme:
                 ColorScheme.fromSeed(seedColor: const Color(0xFF356DDA)),
             scaffoldBackgroundColor: const Color(0xFFF5F7FC)),
+        builder: (context, child) => AdaptiveToolbarHost(child: child!),
         home: const Dashboard(),
       );
 }
