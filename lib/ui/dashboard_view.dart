@@ -28,6 +28,7 @@ class DashboardView extends StatefulWidget {
     this.garminAccount,
     this.garminLoading = false,
     this.garminBusy = false,
+    this.garminSyncingReading = false,
     this.garminPendingReadings = 0,
     this.garminSyncCompleted,
     this.garminSyncTotal,
@@ -48,6 +49,9 @@ class DashboardView extends StatefulWidget {
   final GarminAccount? garminAccount;
   final bool garminLoading;
   final bool garminBusy;
+
+  /// True while a new scale reading is being uploaded, the last measuring step.
+  final bool garminSyncingReading;
   final int garminPendingReadings;
   final int? garminSyncCompleted;
   final int? garminSyncTotal;
@@ -179,6 +183,8 @@ class _DashboardViewState extends State<DashboardView> {
                 onMeasure: widget.onMeasure,
                 onManual: widget.onManual,
                 onProfile: widget.onProfile,
+                garminConnected: widget.garminAccount != null,
+                garminSyncingReading: widget.garminSyncingReading,
                 bottomClearance: bottomClearance,
               ),
             ),
@@ -229,6 +235,8 @@ class _HomeTab extends StatelessWidget {
     required this.onMeasure,
     required this.onManual,
     required this.onProfile,
+    required this.garminConnected,
+    required this.garminSyncingReading,
     required this.bottomClearance,
   });
 
@@ -241,6 +249,8 @@ class _HomeTab extends StatelessWidget {
   final VoidCallback onMeasure;
   final VoidCallback onManual;
   final VoidCallback onProfile;
+  final bool garminConnected;
+  final bool garminSyncingReading;
   final double bottomClearance;
 
   bool get _scanning => phase != ScalePhase.idle;
@@ -295,9 +305,9 @@ class _HomeTab extends StatelessWidget {
           ),
         ),
         NoticeSlot(notice: notice),
-        if (_scanning) ...[
+        if (_scanning || garminSyncingReading) ...[
           const SizedBox(height: BodySpace.lg),
-          _ScanningCard(phase: phase),
+          _ScanningCard(phase: phase, garminConnected: garminConnected),
         ],
         if (!loadingProfile && profile == null) ...[
           const SizedBox(height: BodySpace.lg),
@@ -620,32 +630,41 @@ class _MetricsSection extends StatelessWidget {
   }
 }
 
+/// Progress through a measurement. The scale session is finished once the
+/// phase is back to idle, so a card that is still showing is on the Garmin step.
 class _ScanningCard extends StatelessWidget {
-  const _ScanningCard({required this.phase});
+  const _ScanningCard({required this.phase, required this.garminConnected});
 
   final ScalePhase phase;
+  final bool garminConnected;
 
   @override
   Widget build(BuildContext context) {
     final colors = BodyColors.of(context);
+    final labels = [
+      'Looking',
+      'Connecting',
+      'Reading',
+      if (garminConnected) 'Syncing',
+    ];
     final step = switch (phase) {
       ScalePhase.discovering => 0,
       ScalePhase.connecting => 1,
       ScalePhase.waitingForReading => 2,
-      ScalePhase.idle => -1,
+      ScalePhase.idle => 3,
     };
     final title = switch (phase) {
       ScalePhase.discovering => 'Looking for your scale',
       ScalePhase.connecting => 'Connecting to your scale',
       ScalePhase.waitingForReading => 'Step on the scale',
-      ScalePhase.idle => '',
+      ScalePhase.idle => 'Syncing with Garmin',
     };
     final message = switch (phase) {
       ScalePhase.discovering => 'Wake the scale and keep it near your phone.',
       ScalePhase.connecting => 'This only takes a moment.',
       ScalePhase.waitingForReading =>
         'Stand still with bare feet until the reading is saved.',
-      ScalePhase.idle => '',
+      ScalePhase.idle => 'Your reading is saved. You can keep using the app.',
     };
 
     return Semantics(
@@ -670,21 +689,17 @@ class _ScanningCard extends StatelessWidget {
             ),
             const SizedBox(height: BodySpace.lg),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (var index = 0; index < 3; index++) ...[
-                  if (index > 0)
-                    Expanded(
-                      child: Container(
-                        height: 2,
-                        color: index <= step ? colors.accent : colors.border,
-                      ),
+                for (var index = 0; index < labels.length; index++)
+                  Expanded(
+                    child: _PhaseStep(
+                      index: index,
+                      total: labels.length,
+                      step: step,
+                      label: labels[index],
                     ),
-                  _PhaseStep(
-                    index: index,
-                    step: step,
-                    label: const ['Looking', 'Connecting', 'Reading'][index],
                   ),
-                ],
               ],
             ),
           ],
@@ -697,11 +712,13 @@ class _ScanningCard extends StatelessWidget {
 class _PhaseStep extends StatelessWidget {
   const _PhaseStep({
     required this.index,
+    required this.total,
     required this.step,
     required this.label,
   });
 
   final int index;
+  final int total;
   final int step;
   final String label;
 
@@ -719,46 +736,83 @@ class _PhaseStep extends StatelessWidget {
         ? colors.onAccent
         : colors.secondaryInk;
 
-    return SizedBox(
-      width: 78,
-      child: Column(
-        children: [
-          AnimatedContainer(
-            duration: MediaQuery.disableAnimationsOf(context)
-                ? Duration.zero
-                : BodyMotion.fast,
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: background,
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: active || complete ? background : colors.controlBorder,
+    final labelStyle = BodyType.caption.copyWith(
+      fontSize: 11,
+      color: active ? colors.ink : colors.secondaryInk,
+    );
+
+    // Half of the line to each neighbour. Columns are equal width, so the
+    // halves meet at the column edges and read as one line behind the circles.
+    Widget connector({required bool shown, required bool reached}) => Expanded(
+      child: shown
+          ? Container(height: 2, color: reached ? colors.accent : colors.border)
+          : const SizedBox.shrink(),
+    );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 28,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Row(
+                children: [
+                  connector(shown: index > 0, reached: index <= step),
+                  connector(shown: index < total - 1, reached: index < step),
+                ],
+              ),
+              AnimatedContainer(
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : BodyMotion.fast,
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: background,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: active || complete
+                        ? background
+                        : colors.controlBorder,
+                  ),
+                ),
+                child: Center(
+                  child: complete
+                      ? Icon(Icons.check_rounded, size: 18, color: foreground)
+                      : Text(
+                          '${index + 1}',
+                          style: BodyType.caption.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: foreground,
+                          ),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: BodySpace.xs),
+        // Four steps can be narrow at large text sizes. Shrink the label
+        // instead of breaking it mid-word, centred in a full-line slot so
+        // labels that shrink by different amounts still share a line.
+        SizedBox(
+          height:
+              (MediaQuery.textScalerOf(context).scale(labelStyle.fontSize!) *
+                      labelStyle.height!)
+                  .ceilToDouble(),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(label, style: labelStyle),
               ),
             ),
-            child: Center(
-              child: complete
-                  ? Icon(Icons.check_rounded, size: 18, color: foreground)
-                  : Text(
-                      '${index + 1}',
-                      style: BodyType.caption.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: foreground,
-                      ),
-                    ),
-            ),
           ),
-          const SizedBox(height: BodySpace.xs),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: BodyType.caption.copyWith(
-              fontSize: 11,
-              color: active ? colors.ink : colors.secondaryInk,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

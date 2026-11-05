@@ -1,8 +1,42 @@
 # Garmin Connect sync
 
-The Profile tab connects to Garmin Connect and uploads body-composition
-readings. This is the mobile equivalent of WebBodyComposition's "Send to Garmin
-Connect" form, implemented directly in Dart without a third-party proxy.
+The Profile tab connects to Garmin Connect. Once connected, new body-composition
+readings upload automatically, and the Profile tab's Sync button sends any that
+are still waiting. This is the mobile equivalent of WebBodyComposition's "Send
+to Garmin Connect" form, implemented directly in Dart without a third-party
+proxy.
+
+## Automatic upload
+
+When a Garmin account is connected, each new reading uploads as soon as it is
+saved:
+
+- **Scale readings** get a fourth step in the measuring card: Looking,
+  Connecting, Reading, Syncing. Without a connected account the card keeps its
+  three steps and nothing is uploaded.
+- **Manually added weights** upload in the background with no step card. A notice
+  reports the result.
+
+Only the new reading is sent. Older unsent readings wait for Sync on the Profile
+tab, so connecting an account never uploads a history unprompted.
+
+The reading is saved before the upload starts, so a failed upload never loses it.
+You can also start another measurement during the Syncing step. Garmin work runs
+one task at a time, so a second reading waits for the first upload, and a
+disconnect waits for any upload already in flight.
+
+If an upload fails, the notice says the reading was saved but not sent, and
+offers **Try again**. If the Garmin session has expired it offers **Reconnect**
+instead, which sends the reading after you sign in. Failed uploads are not
+retried on their own; they stay pending until you tap Try again or Sync.
+
+Uploads only run while the app is open. If the system suspends the app during an
+upload, it can report a failure when you return. Trying again is safe because
+duplicates are treated as success.
+
+A reading that uploads before a measurement profile exists stays weight-only in
+Garmin, because it is marked as sent and adding a profile later does not resend
+it.
 
 ## What is uploaded
 
@@ -45,10 +79,10 @@ the UI asks you to reconnect.
 ## Duplicate handling
 
 The app stores the timestamps of successfully uploaded readings per Garmin
-account. A sync only builds FIT files for readings that are not in that set.
-Garmin's duplicate response (import message code 202) is also treated as
-success. Failed readings stay unsynced and are retried the next time Sync is
-tapped.
+account. Automatic uploads and Sync only build FIT files for readings that are
+not in that set. Garmin's duplicate response (import message code 202) is also
+treated as success. Failed readings stay unsynced until you tap Try again or
+Sync.
 
 ## Troubleshooting
 
@@ -72,8 +106,10 @@ automated-traffic flags.
 Unit tests cover FIT encoding (including header/file CRCs and scaled values),
 the mobile sign-in and MFA flow with a mocked HTTP client, token refresh,
 multipart upload parsing, duplicate handling, per-account sync tracking and the
-body-composition formulas. A live sign-in requires a real Garmin account and a
-physical device/emulator with network access.
+body-composition formulas. `test/main_test.dart` drives the automatic upload
+through the real dashboard with the scale and Garmin network faked. A live
+sign-in requires a real Garmin account and a physical device/emulator with
+network access.
 
 Generate a FIT file for inspection with:
 

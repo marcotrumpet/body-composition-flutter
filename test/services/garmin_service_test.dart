@@ -1,11 +1,11 @@
-import 'dart:typed_data';
-
 import 'package:body_composition_flutter/models/garmin_account.dart';
 import 'package:body_composition_flutter/models/measurement.dart';
 import 'package:body_composition_flutter/models/user_profile.dart';
 import 'package:body_composition_flutter/services/garmin_client.dart';
 import 'package:body_composition_flutter/services/garmin_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../support/garmin_fakes.dart';
 
 void main() {
   const profile = UserProfile(heightCm: 175, ageYears: 35, sex: 'male');
@@ -29,8 +29,8 @@ void main() {
   }
 
   test('connect stores the account and loads its sync markers', () async {
-    final api = _FakeApi(account('user@example.com'));
-    final storage = _FakeStorage();
+    final api = FakeGarminApi(account('user@example.com'));
+    final storage = FakeGarminStorage();
     final service = GarminService(client: api, storage: storage);
 
     final result = await service.connect(
@@ -45,9 +45,9 @@ void main() {
   });
 
   test('connect reports MFA and completeMfa stores the account', () async {
-    final api = _FakeApi(account('user@example.com'))
+    final api = FakeGarminApi(account('user@example.com'))
       ..mfaChallenge = const GarminMfaChallenge(method: 'email');
-    final storage = _FakeStorage();
+    final storage = FakeGarminStorage();
     final service = GarminService(client: api, storage: storage);
 
     final result = await service.connect(
@@ -69,8 +69,8 @@ void main() {
   test(
     'sync uploads only unsynced readings oldest first and marks them',
     () async {
-      final api = _FakeApi(account('user@example.com'));
-      final storage = _FakeStorage();
+      final api = FakeGarminApi(account('user@example.com'));
+      final storage = FakeGarminStorage();
       final old = measurement(DateTime(2026, 11, 1, 9));
       final middle = measurement(DateTime(2026, 11, 2, 9), weightKg: 72.2);
       final newest = measurement(DateTime(2026, 11, 3, 9), weightKg: 72.0);
@@ -105,6 +105,25 @@ void main() {
     },
   );
 
+  test('sync given only the new reading leaves older ones pending', () async {
+    final api = FakeGarminApi(account('user@example.com'));
+    final older = measurement(DateTime(2026, 11, 1, 9));
+    final newest = measurement(DateTime(2026, 11, 2, 9));
+    final service = GarminService(client: api, storage: FakeGarminStorage());
+    await service.load();
+    await service.connect(email: 'user@example.com', password: 'secret');
+
+    final result = await service.sync(history: [newest], profile: profile);
+
+    expect(result.uploaded, 1);
+    expect(
+      api.uploads.single.filename,
+      startsWith('body_composition_20261102'),
+    );
+    expect(service.isSynced(newest), isTrue);
+    expect(service.pendingCount([older, newest]), 1);
+  });
+
   test(
     'sync clears a stored account whose refresh token is rejected',
     () async {
@@ -115,8 +134,8 @@ void main() {
         clientId: 'client',
         accessTokenExpiresAt: DateTime.now().subtract(const Duration(hours: 1)),
       );
-      final storage = _FakeStorage()..account = expired;
-      final api = _FakeApi(expired)
+      final storage = FakeGarminStorage()..account = expired;
+      final api = FakeGarminApi(expired)
         ..nextRefreshError = const GarminException(
           GarminFailureKind.unauthorized,
           'expired',
@@ -138,12 +157,12 @@ void main() {
   );
 
   test('sync clears the session when Garmin rejects the token', () async {
-    final api = _FakeApi(account('user@example.com'));
+    final api = FakeGarminApi(account('user@example.com'));
     api.nextUploadError = const GarminException(
       GarminFailureKind.unauthorized,
       'expired',
     );
-    final storage = _FakeStorage();
+    final storage = FakeGarminStorage();
     final service = GarminService(client: api, storage: storage);
     await service.load();
     await service.connect(email: 'user@example.com', password: 'secret');
@@ -161,12 +180,12 @@ void main() {
   });
 
   test('sync returns partial results without aborting', () async {
-    final api = _FakeApi(account('user@example.com'));
+    final api = FakeGarminApi(account('user@example.com'));
     api.nextUploadError = const GarminException(
       GarminFailureKind.uploadRejected,
       'Garmin rejected the reading.',
     );
-    final storage = _FakeStorage();
+    final storage = FakeGarminStorage();
     final service = GarminService(client: api, storage: storage);
     await service.load();
     await service.connect(email: 'user@example.com', password: 'secret');
@@ -186,8 +205,8 @@ void main() {
   });
 
   test('sync markers are kept per Garmin account', () async {
-    final storage = _FakeStorage();
-    final firstApi = _FakeApi(account('first@example.com'));
+    final storage = FakeGarminStorage();
+    final firstApi = FakeGarminApi(account('first@example.com'));
     final first = GarminService(client: firstApi, storage: storage);
     await first.load();
     await first.connect(email: 'first@example.com', password: 'secret');
@@ -195,7 +214,7 @@ void main() {
     await first.sync(history: [reading], profile: profile);
     expect(first.pendingCount([reading]), 0);
 
-    final secondApi = _FakeApi(account('second@example.com'));
+    final secondApi = FakeGarminApi(account('second@example.com'));
     final second = GarminService(client: secondApi, storage: storage);
     await second.load();
     await second.connect(email: 'second@example.com', password: 'secret');
@@ -204,13 +223,13 @@ void main() {
   });
 
   test('loading restores a stored account and markers', () async {
-    final storage = _FakeStorage()
+    final storage = FakeGarminStorage()
       ..account = account('user@example.com')
       ..synced = {
         'user@example.com': {123},
       };
     final service = GarminService(
-      client: _FakeApi(account('x')),
+      client: FakeGarminApi(account('x')),
       storage: storage,
     );
 
@@ -259,90 +278,4 @@ void main() {
     expect(reading.waterPercent, isNull);
     expect(reading.visceralFatRating, isNull);
   });
-}
-
-class _UploadedFile {
-  const _UploadedFile(this.filename, this.bytes);
-
-  final String filename;
-  final Uint8List bytes;
-}
-
-class _FakeApi implements GarminApi {
-  _FakeApi(this.account);
-
-  GarminAccount account;
-  GarminException? nextUploadError;
-  GarminException? nextRefreshError;
-  GarminMfaChallenge? mfaChallenge;
-  final List<_UploadedFile> uploads = [];
-
-  @override
-  Future<GarminLoginResult> login({
-    required String email,
-    required String password,
-  }) async {
-    if (mfaChallenge != null) {
-      return GarminLoginResult.mfaRequired(mfaChallenge!);
-    }
-    return GarminLoginResult.connected(account);
-  }
-
-  @override
-  Future<GarminAccount> completeMfa(String code) async => account;
-
-  @override
-  Future<GarminAccount> refresh(GarminAccount account) async {
-    final error = nextRefreshError;
-    if (error != null) {
-      nextRefreshError = null;
-      throw error;
-    }
-    return account;
-  }
-
-  @override
-  Future<GarminUploadOutcome> uploadWeightFit({
-    required GarminAccount account,
-    required Uint8List fitFile,
-    required String filename,
-  }) async {
-    uploads.add(_UploadedFile(filename, fitFile));
-    final error = nextUploadError;
-    if (error != null) {
-      nextUploadError = null;
-      throw error;
-    }
-    return GarminUploadOutcome(account: account, uploadId: uploads.length);
-  }
-}
-
-class _FakeStorage implements GarminStorage {
-  GarminAccount? account;
-  Map<String, Set<int>> synced = {};
-
-  @override
-  Future<GarminAccount?> loadAccount() async => account;
-
-  @override
-  Future<void> saveAccount(GarminAccount account) async {
-    this.account = account;
-  }
-
-  @override
-  Future<void> clearAccount() async {
-    account = null;
-  }
-
-  @override
-  Future<Map<String, Set<int>>> loadSynced() async => {
-    for (final entry in synced.entries) entry.key: {...entry.value},
-  };
-
-  @override
-  Future<void> saveSynced(Map<String, Set<int>> synced) async {
-    this.synced = {
-      for (final entry in synced.entries) entry.key: {...entry.value},
-    };
-  }
 }

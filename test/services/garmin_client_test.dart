@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -297,6 +298,35 @@ void main() {
     expect(uploads, 2);
     expect(outcome.uploadId, 7);
     expect(outcome.account.accessToken, 'access-new');
+  });
+
+  test('times out when an upload response body stalls', () async {
+    final mock = MockClient.streaming(
+      (request, bodyStream) async => http.StreamedResponse(
+        // Headers arrived, but the body never finishes.
+        StreamController<List<int>>().stream,
+        200,
+      ),
+    );
+    final stalled = GarminClient(
+      httpClient: mock,
+      timeout: const Duration(milliseconds: 10),
+    );
+
+    await expectLater(
+      stalled.uploadWeightFit(
+        account: account(),
+        fitFile: Uint8List.fromList([1, 2, 3]),
+        filename: 'reading.fit',
+      ),
+      throwsA(
+        isA<GarminException>().having(
+          (error) => error.kind,
+          'kind',
+          GarminFailureKind.network,
+        ),
+      ),
+    );
   });
 
   test('maps blocked sign-in responses', () async {

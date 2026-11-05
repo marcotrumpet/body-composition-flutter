@@ -63,8 +63,8 @@ class GarminCard extends StatelessWidget {
                       const SizedBox(height: BodySpace.xs),
                       Text(
                         connected
-                            ? 'Weight and body-composition readings can be sent '
-                                  'to your Garmin account.'
+                            ? 'New readings are sent to your Garmin account '
+                                  'automatically.'
                             : 'Send weight and body-composition readings to '
                                   'Garmin Connect.',
                         style: BodyType.caption.copyWith(
@@ -152,9 +152,10 @@ class GarminCard extends StatelessWidget {
             ],
             const SizedBox(height: BodySpace.sm),
             Text(
-              "Uses Garmin Connect's mobile sign-in. Readings are sent only "
-              'when you tap Sync, and your Garmin session is stored securely '
-              'on this device.',
+              "Uses Garmin Connect's mobile sign-in. New readings upload "
+              'automatically after each measurement, and Sync sends any that '
+              'are still waiting. Your Garmin session is stored securely on '
+              'this device.',
               style: BodyType.caption.copyWith(color: colors.secondaryInk),
             ),
           ],

@@ -610,7 +610,10 @@ class GarminClient implements GarminApi {
   Future<http.Response> _send(http.BaseRequest request) async {
     try {
       final streamed = await _http.send(request).timeout(_timeout);
-      final response = await http.Response.fromStream(streamed);
+      // send() completes once headers arrive, so the body needs its own limit.
+      final response = await http.Response.fromStream(
+        streamed,
+      ).timeout(_timeout);
       _captureCookies(response);
       return response;
     } on TimeoutException catch (error) {

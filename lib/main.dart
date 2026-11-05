@@ -52,7 +52,11 @@ class BodyCompositionApp extends StatelessWidget {
 }
 
 class Dashboard extends StatefulWidget {
-  const Dashboard({super.key});
+  const Dashboard({super.key, this.scale, this.garminService});
+
+  /// Test seams; the app uses the real services.
+  final ScaleBle? scale;
+  final GarminService? garminService;
 
   @override
   State<Dashboard> createState() => _DashboardState();
@@ -61,9 +65,9 @@ class Dashboard extends StatefulWidget {
 class _DashboardState extends State<Dashboard> {
   final store = MeasurementStore();
   final profileStore = UserProfileStore();
-  final ble = ScaleBle();
+  late final ble = widget.scale ?? ScaleBle();
   final bluetoothPermissions = BluetoothPermissions();
-  final garmin = GarminService();
+  late final garmin = widget.garminService ?? GarminService();
 
   List<Measurement> history = [];
   UserProfile? profile;
@@ -75,9 +79,11 @@ class _DashboardState extends State<Dashboard> {
   String? lastGarminEmail;
   bool loadingGarmin = true;
   bool garminBusy = false;
+  bool garminSyncingReading = false;
   int garminSyncCompleted = 0;
   int garminSyncTotal = 0;
 
+  Future<void> _garminQueue = Future<void>.value();
   Timer? _noticeTimer;
   StreamSubscription<Measurement>? _measurementSub;
   StreamSubscription<ScalePhase>? _phaseSub;
@@ -243,8 +249,7 @@ class _DashboardState extends State<Dashboard> {
       return;
     }
 
-    final pending = garmin.pendingCount(history);
-    if (pending == 0) {
+    if (garmin.pendingCount(history) == 0) {
       _showNotice(
         const DashboardNotice(
           tone: NoticeTone.info,
@@ -256,33 +261,18 @@ class _DashboardState extends State<Dashboard> {
       return;
     }
 
-    setState(() {
-      garminBusy = true;
-      garminSyncCompleted = 0;
-      garminSyncTotal = pending;
-    });
-
-    try {
-      final result = await garmin.sync(
-        history: history,
-        profile: profile,
-        onProgress: (completed, total) {
-          if (!mounted) return;
-          setState(() {
-            garminSyncCompleted = completed;
-            garminSyncTotal = total;
-          });
-        },
+    await _enqueueGarmin(() async {
+      if (garminAccount == null) return;
+      final result = await _runGarminSync(
+        history,
+        retry: _syncGarmin,
+        reconnect: _connectGarmin,
       );
-      if (!mounted) return;
-      setState(() {
-        garminBusy = false;
-        garminAccount = garmin.account;
-      });
+      if (result == null) return;
 
       if (result.hadFailures) {
         final attempted = result.uploaded + result.failed;
-        _showNotice(
+        _showGarminNotice(
           DashboardNotice(
             tone: NoticeTone.danger,
             title: 'Some readings were not sent',
@@ -294,7 +284,7 @@ class _DashboardState extends State<Dashboard> {
           ),
         );
       } else if (result.uploaded == 0) {
-        _showNotice(
+        _showGarminNotice(
           const DashboardNotice(
             tone: NoticeTone.info,
             title: 'Everything is synced',
@@ -303,7 +293,7 @@ class _DashboardState extends State<Dashboard> {
           autoDismiss: true,
         );
       } else {
-        _showNotice(
+        _showGarminNotice(
           DashboardNotice(
             tone: NoticeTone.success,
             title: 'Sent to Garmin',
@@ -315,37 +305,137 @@ class _DashboardState extends State<Dashboard> {
           autoDismiss: true,
         );
       }
+    });
+  }
+
+  /// The last step of taking a reading: sends the saved [reading] to Garmin
+  /// when an account is connected. Older unsent readings stay for Sync on the
+  /// profile tab, so connecting an account never uploads a history unprompted.
+  Future<void> _sendToGarmin(
+    Measurement reading,
+    DashboardNotice saved, {
+    bool showStep = false,
+  }) {
+    Future<void> retry() => _sendToGarmin(reading, saved, showStep: showStep);
+    final notSent = '${saved.title}, not sent to Garmin';
+
+    return _enqueueGarmin(() async {
+      // Checked when the task runs: a disconnect or an expired session may
+      // have come first.
+      if (garminAccount == null) return;
+      final result = await _runGarminSync(
+        [reading],
+        showStep: showStep,
+        failureTitle: notSent,
+        retry: retry,
+        reconnect: () async {
+          await _connectGarmin();
+          if (mounted && garminAccount != null) await retry();
+        },
+      );
+      if (result == null) return;
+
+      if (result.hadFailures) {
+        _showGarminNotice(
+          DashboardNotice(
+            tone: NoticeTone.danger,
+            title: notSent,
+            message: result.firstError ?? 'Try again.',
+            actionLabel: 'Try again',
+            onAction: () => unawaited(retry()),
+          ),
+        );
+      } else if (result.uploaded > 0) {
+        _showGarminNotice(
+          DashboardNotice(
+            tone: NoticeTone.success,
+            title: '${saved.title} and sent to Garmin',
+            message: saved.message,
+          ),
+          autoDismiss: true,
+        );
+      }
+    });
+  }
+
+  /// Runs Garmin work one task at a time. [GarminService.sync] writes the
+  /// account back after each upload, so a disconnect has to queue behind
+  /// uploads too.
+  Future<void> _enqueueGarmin(Future<void> Function() task) {
+    final run = _garminQueue.then<void>((_) async {
+      if (mounted) await task();
+    });
+    // A task that throws must not stall the ones behind it.
+    _garminQueue = run.catchError((Object _) {});
+    return run;
+  }
+
+  /// Uploads [readings] and keeps the progress state in step with the run.
+  /// Returns null when the run failed outright and a notice already says so.
+  Future<GarminSyncResult?> _runGarminSync(
+    List<Measurement> readings, {
+    required Future<void> Function() retry,
+    required Future<void> Function() reconnect,
+    String? failureTitle,
+    bool showStep = false,
+  }) async {
+    setState(() {
+      garminBusy = true;
+      garminSyncingReading = showStep;
+      garminSyncCompleted = 0;
+      garminSyncTotal = garmin.pendingCount(readings);
+    });
+
+    GarminSyncResult? result;
+    DashboardNotice? failure;
+    try {
+      result = await garmin.sync(
+        history: readings,
+        profile: profile,
+        onProgress: (completed, total) {
+          if (!mounted) return;
+          setState(() {
+            garminSyncCompleted = completed;
+            garminSyncTotal = total;
+          });
+        },
+      );
     } on GarminException catch (error) {
-      if (!mounted) return;
-      setState(() {
-        garminBusy = false;
-        garminAccount = garmin.account;
-      });
-      final retry = error.requiresReconnect ? _connectGarmin : _syncGarmin;
-      _showNotice(_garminNotice(error, retry: retry));
+      failure = _garminNotice(
+        error,
+        title: failureTitle,
+        retry: error.requiresReconnect ? reconnect : retry,
+      );
     } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        garminBusy = false;
-        garminAccount = garmin.account;
-      });
-      _showNotice(
-        DashboardNotice(
-          tone: NoticeTone.danger,
-          title: "Couldn't sync with Garmin",
-          message: 'Try again. Readings that were sent will not be duplicated.',
-          actionLabel: 'Try again',
-          onAction: () => unawaited(_syncGarmin()),
-        ),
+      failure = DashboardNotice(
+        tone: NoticeTone.danger,
+        title: failureTitle ?? "Couldn't sync with Garmin",
+        message: 'Try again. Readings that were sent will not be duplicated.',
+        actionLabel: 'Try again',
+        onAction: () => unawaited(retry()),
       );
     }
+    if (!mounted) return null;
+    setState(() {
+      garminBusy = false;
+      garminSyncingReading = false;
+      garminAccount = garmin.account;
+    });
+    if (failure != null) _showGarminNotice(failure);
+    return result;
+  }
+
+  /// Try again on an unsaved reading is the only way to keep it, so a Garmin
+  /// result that lands while one is waiting must not replace that notice.
+  void _showGarminNotice(DashboardNotice value, {bool autoDismiss = false}) {
+    if (_pendingSave == null) _showNotice(value, autoDismiss: autoDismiss);
   }
 
   Future<void> _disconnectGarmin() async {
     if (garminBusy) return;
     await showGarminDisconnectDialog(
       context,
-      onDisconnect: () async {
+      onDisconnect: () => _enqueueGarmin(() async {
         try {
           await garmin.disconnect();
           if (!mounted) return;
@@ -368,15 +458,16 @@ class _DashboardState extends State<Dashboard> {
             ),
           );
         }
-      },
+      }),
     );
   }
 
   DashboardNotice _garminNotice(
     GarminException error, {
     required Future<void> Function() retry,
+    String? title,
   }) {
-    final title = switch (error.kind) {
+    final kindTitle = switch (error.kind) {
       GarminFailureKind.invalidCredentials => 'Garmin sign-in failed',
       GarminFailureKind.mfaFailed => 'Verification failed',
       GarminFailureKind.rateLimited => 'Garmin is limiting requests',
@@ -395,7 +486,7 @@ class _DashboardState extends State<Dashboard> {
 
     return DashboardNotice(
       tone: NoticeTone.danger,
-      title: title,
+      title: error.requiresReconnect ? kindTitle : title ?? kindTitle,
       message: message,
       actionLabel: actionLabel,
       onAction: () => unawaited(retry()),
@@ -640,14 +731,13 @@ class _DashboardState extends State<Dashboard> {
           'Body composition was not available for this reading.',
         if (profile == null) 'Add your profile to estimate body fat.',
       ].join(' · ');
-      _showNotice(
-        DashboardNotice(
-          tone: NoticeTone.success,
-          title: 'Reading saved',
-          message: detail,
-        ),
-        autoDismiss: true,
+      final saved = DashboardNotice(
+        tone: NoticeTone.success,
+        title: 'Reading saved',
+        message: detail,
       );
+      _showNotice(saved, autoDismiss: true);
+      unawaited(_sendToGarmin(measurement, saved, showStep: true));
     } on MeasurementStorageException {
       if (!mounted) return;
       setState(() => phase = ScalePhase.idle);
@@ -689,15 +779,14 @@ class _DashboardState extends State<Dashboard> {
         phase = ScalePhase.idle;
         _pendingSave = null;
       });
-      _showNotice(
-        DashboardNotice(
-          tone: NoticeTone.success,
-          title: 'Reading saved',
-          message:
-              '${formatWeight(pending.weightKg)} kg · ${formatDateTime(context, pending.timestamp)}',
-        ),
-        autoDismiss: true,
+      final saved = DashboardNotice(
+        tone: NoticeTone.success,
+        title: 'Reading saved',
+        message:
+            '${formatWeight(pending.weightKg)} kg · ${formatDateTime(context, pending.timestamp)}',
       );
+      _showNotice(saved, autoDismiss: true);
+      unawaited(_sendToGarmin(pending, saved));
     } on MeasurementStorageException {
       if (!mounted) return;
       _showNotice(
@@ -736,16 +825,15 @@ class _DashboardState extends State<Dashboard> {
         history = _withMeasurement(history, measurement);
         _pendingSave = null;
       });
-      _showNotice(
-        DashboardNotice(
-          tone: NoticeTone.success,
-          title: 'Weight added',
-          message: bmi == null
-              ? '${formatWeight(weight)} kg added. Add your profile to include BMI.'
-              : '${formatWeight(weight)} kg added.',
-        ),
-        autoDismiss: true,
+      final saved = DashboardNotice(
+        tone: NoticeTone.success,
+        title: 'Weight added',
+        message: bmi == null
+            ? '${formatWeight(weight)} kg added. Add your profile to include BMI.'
+            : '${formatWeight(weight)} kg added.',
       );
+      _showNotice(saved, autoDismiss: true);
+      unawaited(_sendToGarmin(measurement, saved));
     } on MeasurementStorageException {
       if (!mounted) return;
       _showNotice(
@@ -823,6 +911,7 @@ class _DashboardState extends State<Dashboard> {
       garminAccount: garminAccount,
       garminLoading: loadingGarmin,
       garminBusy: garminBusy,
+      garminSyncingReading: garminSyncingReading,
       garminPendingReadings: garminAccount == null
           ? 0
           : garmin.pendingCount(history),

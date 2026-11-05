@@ -16,7 +16,7 @@ This project is not affiliated with or endorsed by Xiaomi or Garmin.
 - Weight, BMI, impedance and estimated body composition
 - Local measurement history and weight trends
 - Optional user profile for measurement estimates; weight-only readings work without one
-- Optional Garmin Connect sync with MFA, token refresh and duplicate-free uploads
+- Optional automatic upload to Garmin Connect after each reading, with manual sync, MFA, token refresh and duplicate-free uploads
 - Adaptive iOS and Android interface using `adaptive_platform_ui`
 - Light and dark palettes with contrast-checked semantic tokens
 - Native iOS Liquid Glass navigation where supported, with platform fallbacks
@@ -28,19 +28,24 @@ This project is not affiliated with or endorsed by Xiaomi or Garmin.
 ## Garmin Connect sync
 
 Open the Profile tab, tap **Connect Garmin**, and sign in with your Garmin
-account. Then tap **Sync readings** to upload any readings that have not been
-sent yet. The app uses the same `weight` FIT file format as the upstream
-WebBodyComposition project: weight, body fat, hydration, bone mass, muscle mass,
-visceral fat rating, physique rating, metabolic age and BMI.
+account. From then on, each new reading uploads automatically: scale readings as
+the last step of the measuring process, and manually added weights in the
+background. The **Sync** button on the Profile tab stays available and sends any
+readings still waiting, such as older ones or an upload that failed. The app
+uses the same `weight` FIT file format as the upstream WebBodyComposition
+project: weight, body fat, hydration, bone mass, muscle mass, visceral fat
+rating, physique rating, metabolic age and BMI.
 
 - The Garmin password is used once to authorize the device and is never stored.
 - Garmin OAuth tokens are kept in the platform Keychain/Keystore via
   `flutter_secure_storage`.
 - MFA verification codes are supported.
-- Successful uploads are recorded locally per Garmin account, so tapping Sync
-  again only sends new readings. Garmin's "already uploaded" response is also
-  treated as success.
-- Without a measurement profile, only weight and BMI can be sent.
+- Successful uploads are recorded locally per Garmin account, so a reading is
+  only sent once. Garmin's "already uploaded" response is also treated as
+  success.
+- Without a measurement profile, only weight and BMI can be sent. A reading
+  uploaded before you add a profile stays weight-only in Garmin, because it is
+  already marked as sent.
 
 Garmin does not publish a body-composition write API. This integration uses the
 same unofficial mobile endpoints as existing community clients, so Garmin may

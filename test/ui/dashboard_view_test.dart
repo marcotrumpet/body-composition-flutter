@@ -29,6 +29,14 @@ Measurement _measurement({
   );
 }
 
+GarminAccount _garminAccount() => GarminAccount(
+  email: 'rider@example.com',
+  accessToken: 'access',
+  refreshToken: 'refresh',
+  clientId: 'client',
+  accessTokenExpiresAt: DateTime(2030),
+);
+
 Future<void> _pumpDashboard(
   WidgetTester tester, {
   required List<Measurement> history,
@@ -43,6 +51,7 @@ Future<void> _pumpDashboard(
   GarminAccount? garminAccount,
   bool garminLoading = false,
   bool garminBusy = false,
+  bool garminSyncingReading = false,
   int garminPendingReadings = 0,
   int? garminSyncCompleted,
   int? garminSyncTotal,
@@ -77,6 +86,7 @@ Future<void> _pumpDashboard(
             garminAccount: garminAccount,
             garminLoading: garminLoading,
             garminBusy: garminBusy,
+            garminSyncingReading: garminSyncingReading,
             garminPendingReadings: garminPendingReadings,
             garminSyncCompleted: garminSyncCompleted,
             garminSyncTotal: garminSyncTotal,
@@ -243,6 +253,133 @@ void main() {
     expect(find.text('Looking'), findsOneWidget);
     expect(find.text('Connecting'), findsOneWidget);
     expect(find.text('Reading'), findsOneWidget);
+    expect(find.text('Syncing'), findsNothing);
+  });
+
+  testWidgets('scanning card adds a Syncing step when Garmin is connected', (
+    tester,
+  ) async {
+    await _pumpDashboard(
+      tester,
+      history: [],
+      phase: ScalePhase.connecting,
+      garminAccount: _garminAccount(),
+    );
+
+    expect(find.text('Connecting to your scale'), findsOneWidget);
+    expect(find.text('Syncing'), findsOneWidget);
+    expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+  });
+
+  testWidgets(
+    'the Syncing step ticks the scale steps and Measure stays ready',
+    (tester) async {
+      await _pumpDashboard(
+        tester,
+        history: [_measurement(timestamp: now)],
+        garminAccount: _garminAccount(),
+        garminBusy: true,
+        garminSyncingReading: true,
+      );
+
+      expect(find.text('Syncing with Garmin'), findsOneWidget);
+      expect(
+        find.text('Your reading is saved. You can keep using the app.'),
+        findsOneWidget,
+      );
+      expect(find.byIcon(Icons.check_rounded), findsNWidgets(3));
+      expect(find.text('Measure on scale'), findsOneWidget);
+      expect(find.text('Stop measuring'), findsNothing);
+    },
+  );
+
+  testWidgets('a scale session takes over the card during a Garmin upload', (
+    tester,
+  ) async {
+    await _pumpDashboard(
+      tester,
+      history: [_measurement(timestamp: now)],
+      phase: ScalePhase.discovering,
+      garminAccount: _garminAccount(),
+      garminBusy: true,
+      garminSyncingReading: true,
+    );
+
+    expect(find.text('Looking for your scale'), findsOneWidget);
+    expect(find.text('Syncing with Garmin'), findsNothing);
+    expect(find.text('Stop measuring'), findsOneWidget);
+  });
+
+  testWidgets('a background Garmin sync does not show the measuring card', (
+    tester,
+  ) async {
+    await _pumpDashboard(
+      tester,
+      history: [_measurement(timestamp: now)],
+      garminAccount: _garminAccount(),
+      garminBusy: true,
+    );
+
+    expect(find.text('Syncing with Garmin'), findsNothing);
+    expect(find.text('Looking'), findsNothing);
+  });
+
+  testWidgets('four measuring steps fit 320px wide at 2x text scale', (
+    tester,
+  ) async {
+    await _pumpDashboard(
+      tester,
+      history: [],
+      phase: ScalePhase.waitingForReading,
+      garminAccount: _garminAccount(),
+      textScale: 2,
+      surfaceSize: const Size(320, 1400),
+    );
+
+    expect(find.text('Syncing'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'step labels share a line when they shrink by different amounts',
+    (tester) async {
+      await _pumpDashboard(
+        tester,
+        history: [],
+        phase: ScalePhase.waitingForReading,
+        garminAccount: _garminAccount(),
+        textScale: 2,
+        surfaceSize: const Size(320, 1400),
+      );
+
+      final connecting = find.text('Connecting');
+      expect(
+        tester.getTopRight(connecting).dx - tester.getTopLeft(connecting).dx,
+        lessThan(tester.getSize(connecting).width),
+      );
+
+      final line = tester.getCenter(find.text('Looking')).dy;
+      for (final label in ['Connecting', 'Reading', 'Syncing']) {
+        expect(tester.getCenter(find.text(label)).dy, closeTo(line, 0.5));
+      }
+    },
+  );
+
+  testWidgets('step labels keep their full size when they fit', (tester) async {
+    await _pumpDashboard(
+      tester,
+      history: [],
+      phase: ScalePhase.waitingForReading,
+      garminAccount: _garminAccount(),
+    );
+
+    for (final label in ['Looking', 'Connecting', 'Reading', 'Syncing']) {
+      final finder = find.text(label);
+      expect(
+        tester.getTopRight(finder).dx - tester.getTopLeft(finder).dx,
+        closeTo(tester.getSize(finder).width, 0.01),
+      );
+    }
   });
 
   testWidgets('trends shows chart, source labels and semantics summary', (
@@ -351,6 +488,15 @@ void main() {
     expect(find.text('Sync 2 readings'), findsOneWidget);
     expect(find.text('Disconnect'), findsOneWidget);
     expect(find.textContaining('2 readings are ready to send'), findsOneWidget);
+    expect(
+      find.text('New readings are sent to your Garmin account automatically.'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('upload automatically after each measurement'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('only when you tap Sync'), findsNothing);
   });
 
   testWidgets('Garmin sync progress is announced on the profile tab', (
